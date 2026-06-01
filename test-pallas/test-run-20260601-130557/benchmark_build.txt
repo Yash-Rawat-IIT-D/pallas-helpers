@@ -1,0 +1,4 @@
+source=/home/dby/inria/test-pallas/mpi_test_spinloop.c
+executable=/home/dby/inria/test-pallas/mpi_test_spinloop
+iterations=1000
+delay_us=10000

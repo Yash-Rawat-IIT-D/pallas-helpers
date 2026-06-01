@@ -1,0 +1,6 @@
+*
+!.gitignore
+!scripts/
+!scripts/**
+!test-pallas/
+!test-pallas/**

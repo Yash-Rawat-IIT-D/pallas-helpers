@@ -1,0 +1,20 @@
+test_index=2
+config_path=/home/dby/inria/test-pallas/test-run-20260601-130557/test_2/pallas.config
+overrides={"durationSubArrayEncoding": "Delta2VintDuration", "overrideLoopPolicy": "false", "tsSubArrayEncoding": "Delta2VintTimestamp"}
+$ bash /home/dby/inria/scripts/kill-trace-procs.sh
+[kill-trace] Searching for processes matching:
+    (mpirun|mpiexec|eztrace|hello_mpi|orted|prte|pmix)
+
+[kill-trace] No matching processes found.
+kill_trace_returncode=0
+$ bash -lc source /home/dby/inria/scripts/env-pallas-eztrace.sh && export PALLAS_CONFIG_PATH=/home/dby/inria/test-pallas/test-run-20260601-130557/test_2/pallas.config && mpirun -np 2 eztrace -m -t mpi /home/dby/inria/test-pallas/mpi_test_spinloop
+status=completed
+returncode=0
+$ bash /home/dby/inria/scripts/kill-trace-procs.sh
+[kill-trace] Searching for processes matching:
+    (mpirun|mpiexec|eztrace|hello_mpi|orted|prte|pmix)
+
+[kill-trace] No matching processes found.
+kill_trace_returncode=0
+trace_dir=/home/dby/inria/test-pallas/test-run-20260601-130557/test_2/mpi_test_spinloop_trace
+elapsed_seconds=18

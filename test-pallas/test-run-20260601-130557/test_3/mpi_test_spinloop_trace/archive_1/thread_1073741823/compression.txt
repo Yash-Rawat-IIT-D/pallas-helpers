@@ -1,0 +1,7 @@
+archive=1
+thread=1073741823
+pre_raw=48290344
+raw=3406976
+compressed=3287635
+effective_ratio=1.036300
+true_ratio=14.688475

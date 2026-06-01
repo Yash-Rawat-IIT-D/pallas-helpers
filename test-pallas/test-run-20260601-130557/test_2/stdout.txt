@@ -1,0 +1,9 @@
+[env-pallas-eztrace] PALLAS_ROOT=/home/dby/inria/pallas/install-pallas
+[env-pallas-eztrace] EZTRACE_PALLAS_ROOT=/home/dby/inria/eztrace/install-pallas
+[env-pallas-eztrace] eztrace=/home/dby/inria/eztrace/install-pallas/bin/eztrace
+[env-pallas-eztrace] otf2-config=/home/dby/inria/pallas/install-pallas/bin/otf2-config
+[env-pallas-eztrace] pallas_print=/home/dby/inria/pallas/install-pallas/bin/pallas_print
+rank=0 iterations=1000 delay_us=10000 payload_bytes=8
+rank=1 iterations=1000 delay_us=10000 payload_bytes=8 total_polls=1237746 avg_polls_per_iter=1237.746000
+[P0T0] Storage bytes for archive_0/thread_0: pre_raw=152064 raw=75800 compressed=141660 effective_ratio=0.54 true_ratio=1.07 event_timestamps_write_ns=11005941 sequence_durations_write_ns=10777878 sequence_exclusive_durations_write_ns=10597140 sequence_timestamps_write_ns=10526130
+[P1T0] Storage bytes for archive_1/thread_1073741823: pre_raw=49621904 raw=9181912 compressed=8544895 effective_ratio=1.07 true_ratio=5.81 event_timestamps_write_ns=111603833 sequence_durations_write_ns=50910285 sequence_exclusive_durations_write_ns=50906030 sequence_timestamps_write_ns=60052063
