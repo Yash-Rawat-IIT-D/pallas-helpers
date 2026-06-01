@@ -1,8 +1,0 @@
-$ make clean
-rm -f mpi_test_spinloop
-returncode=0
-
-$ make
-mpicc -O2 -g mpi_test_spinloop.c -o mpi_test_spinloop
-returncode=0
-

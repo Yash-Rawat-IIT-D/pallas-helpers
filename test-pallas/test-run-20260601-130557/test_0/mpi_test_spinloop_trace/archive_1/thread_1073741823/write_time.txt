@@ -1,6 +1,0 @@
-archive=1
-thread=1073741823
-event_timestamps_write_ns=193189195
-sequence_timestamps_write_ns=103888254
-sequence_durations_write_ns=122117154
-sequence_exclusive_durations_write_ns=126183502

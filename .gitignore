@@ -4,3 +4,4 @@
 !scripts/**
 !test-pallas/
 !test-pallas/**
+test-pallas/test-run-*

@@ -1,7 +1,0 @@
-archive=0
-thread=0
-pre_raw=152064
-raw=152064
-compressed=152263
-effective_ratio=0.998693
-true_ratio=0.998693

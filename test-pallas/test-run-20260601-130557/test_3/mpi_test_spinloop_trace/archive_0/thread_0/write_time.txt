@@ -1,6 +1,0 @@
-archive=0
-thread=0
-event_timestamps_write_ns=12549417
-sequence_timestamps_write_ns=11122775
-sequence_durations_write_ns=15329333
-sequence_exclusive_durations_write_ns=12657150
