@@ -26,6 +26,7 @@ STATUS_FAILED = 1
 STATUS_TIMEOUT = 2
 STATUS_TRACE_MISSING = 3
 STATUS_BUILD_FAILED = 4
+STATUS_READ_BENCHMARK_FAILED = 5
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -110,6 +111,7 @@ def status_name(status: int) -> str:
         STATUS_TIMEOUT: "timeout",
         STATUS_TRACE_MISSING: "trace_missing",
         STATUS_BUILD_FAILED: "build_failed",
+        STATUS_READ_BENCHMARK_FAILED: "read_benchmark_failed",
     }.get(status, "unknown")
 
 
@@ -164,6 +166,8 @@ def run_test_case(
     config_path = case_dir / "pallas.config"
     stdout_path = case_dir / "stdout.txt"
     stderr_path = case_dir / "stderr.txt"
+    read_benchmark_stdout_path = case_dir / "read_benchmark_stdout.txt"
+    read_benchmark_stderr_path = case_dir / "read_benchmark_stderr.txt"
 
     config_path.write_text(apply_overrides(base_lines, overrides), encoding="utf-8")
     append_log(run_log, f"test_index={index}")
@@ -207,6 +211,50 @@ def run_test_case(
         append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
         append_log(run_log, f"trace_dir_missing={trace_dir_name}\n")
         return STATUS_TRACE_MISSING, elapsed_seconds
+
+    trace_file = trace_dir / "eztrace_log.pallas"
+    if not trace_file.exists():
+        elapsed_seconds = int(time.perf_counter() - start_time)
+        append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
+        append_log(run_log, f"trace_file_missing={trace_file}\n")
+        return STATUS_TRACE_MISSING, elapsed_seconds
+
+    benchmark_command = (
+        f"source {shlex.quote(str(env_script))} && "
+        f"pallas_read_benchmark {shlex.quote(str(trace_file))}"
+    )
+    append_log(run_log, "$ bash -lc " + benchmark_command + "\n")
+
+    with read_benchmark_stdout_path.open("w", encoding="utf-8") as stdout_handle, read_benchmark_stderr_path.open(
+        "w", encoding="utf-8"
+    ) as stderr_handle:
+        benchmark_result = subprocess.run(
+            ["bash", "-lc", benchmark_command],
+            cwd=case_dir,
+            text=True,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            check=False,
+        )
+
+    benchmark_report_path = trace_file.with_suffix(".read_benchmark.txt")
+    append_log(
+        run_log,
+        "\n".join(
+            [
+                "read_benchmark_status=completed",
+                f"read_benchmark_returncode={benchmark_result.returncode}",
+                f"read_benchmark_trace_file={trace_file}",
+                f"read_benchmark_report={benchmark_report_path}",
+                "",
+            ]
+        ),
+    )
+
+    if benchmark_result.returncode != 0:
+        elapsed_seconds = int(time.perf_counter() - start_time)
+        append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
+        return STATUS_READ_BENCHMARK_FAILED, elapsed_seconds
 
     elapsed_seconds = int(time.perf_counter() - start_time)
     append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")

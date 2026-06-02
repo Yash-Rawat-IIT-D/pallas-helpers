@@ -10,6 +10,7 @@ source "${SCRIPT_DIR}/_inria-layout.sh"
 export PALLAS_BASE_SRC="$INRIA_ROOT/pallas-base"
 export PALLAS_BASE_BUILD="$PALLAS_BASE_SRC/build-pallas"
 export PALLAS_BASE_ROOT="$PALLAS_BASE_SRC/install-pallas"
+export PALLAS_BASE_READ_BENCHMARK="$PALLAS_BASE_ROOT/bin/pallas_read_benchmark"
 
 export EZTRACE_SRC="$INRIA_ROOT/eztrace"
 export EZTRACE_PALLAS_BASE_BUILD="$EZTRACE_SRC/build-pallas-base"
@@ -120,6 +121,7 @@ echo "[env-pallas-base-eztrace] EZTRACE_PALLAS_BASE_ROOT=$EZTRACE_PALLAS_BASE_RO
 echo "[env-pallas-base-eztrace] eztrace=$(command -v eztrace || true)"
 echo "[env-pallas-base-eztrace] otf2-config=$(command -v otf2-config || true)"
 echo "[env-pallas-base-eztrace] pallas_print=$(command -v pallas_print || true)"
+echo "[env-pallas-base-eztrace] pallas_read_benchmark=$(command -v pallas_read_benchmark || true)"
 
 if [ "$(command -v eztrace || true)" != "$EZTRACE_PALLAS_BASE_ROOT/bin/eztrace" ]; then
     echo "[env-pallas-base-eztrace] WARNING: eztrace is not from EZTrace-Pallas-base."

@@ -13,6 +13,7 @@ source "${SCRIPT_DIR}/_inria-layout.sh"
 export PALLAS_SRC="$INRIA_ROOT/pallas"
 export PALLAS_BUILD="$PALLAS_SRC/build-pallas"
 export PALLAS_ROOT="$PALLAS_SRC/install-pallas"
+export PALLAS_READ_BENCHMARK="$PALLAS_ROOT/bin/pallas_read_benchmark"
 
 # Load normal OTF2/EZTrace env first.
 # Then we prepend Pallas below, so Pallas wins.
@@ -97,6 +98,7 @@ echo "[env-pallas] PALLAS_ROOT=$PALLAS_ROOT"
 echo "[env-pallas] Activated Pallas environment."
 echo "[env-pallas] otf2-config=$(command -v otf2-config || true)"
 echo "[env-pallas] pallas_print=$(command -v pallas_print || true)"
+echo "[env-pallas] pallas_read_benchmark=$(command -v pallas_read_benchmark || true)"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     echo "[env-pallas] WARNING: You executed this script."

@@ -11,6 +11,7 @@ source "${SCRIPT_DIR}/_inria-layout.sh"
 export PALLAS_BASE_SRC="$INRIA_ROOT/pallas-base"
 export PALLAS_BASE_BUILD="$PALLAS_BASE_SRC/build-pallas"
 export PALLAS_BASE_ROOT="$PALLAS_BASE_SRC/install-pallas"
+export PALLAS_BASE_READ_BENCHMARK="$PALLAS_BASE_ROOT/bin/pallas_read_benchmark"
 
 if [ -f "$INRIA_SCRIPTS_DIR/env-otf2-eztrace.sh" ]; then
     source "$INRIA_SCRIPTS_DIR/env-otf2-eztrace.sh"
@@ -93,6 +94,7 @@ echo "[env-pallas-base] PALLAS_BASE_ROOT=$PALLAS_BASE_ROOT"
 echo "[env-pallas-base] Activated baseline Pallas environment."
 echo "[env-pallas-base] otf2-config=$(command -v otf2-config || true)"
 echo "[env-pallas-base] pallas_print=$(command -v pallas_print || true)"
+echo "[env-pallas-base] pallas_read_benchmark=$(command -v pallas_read_benchmark || true)"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     echo "[env-pallas-base] WARNING: You executed this script."
