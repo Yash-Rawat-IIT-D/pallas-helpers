@@ -1,17 +1,92 @@
 import argparse
+import ctypes
+import importlib
+import os
 import statistics
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+PALLAS_LIB_CANDIDATES = (
+    ROOT / "pallas" / "install-pallas" / "lib" / "libpallas.so",
+    ROOT / "pallas" / "install-pallas" / "lib64" / "libpallas.so",
+    ROOT / "pallas" / "build-pallas" / "libraries" / "pallas" / "libpallas.so",
+)
+PALLAS_TRACE_PATH_CANDIDATES = (
+    ROOT / "pallas" / "libraries" / "pallas_python",
+)
+
+
+def preload_pallas_library():
+    for candidate in PALLAS_LIB_CANDIDATES:
+        if not candidate.exists():
+            continue
+        lib_dir = str(candidate.parent)
+        current = os.environ.get("LD_LIBRARY_PATH", "")
+        if lib_dir not in current.split(":"):
+            os.environ["LD_LIBRARY_PATH"] = f"{lib_dir}:{current}" if current else lib_dir
+        ctypes.CDLL(str(candidate), mode=ctypes.RTLD_GLOBAL)
+        return candidate
+    return None
+
+
+def add_local_pallas_trace_path():
+    for candidate in PALLAS_TRACE_PATH_CANDIDATES:
+        if candidate.exists():
+            candidate_str = str(candidate)
+            if candidate_str not in sys.path:
+                sys.path.insert(0, candidate_str)
+            return candidate
+    return None
+
+
+def import_pallas_trace():
+    global local_pallas_trace_path
+    try:
+        return importlib.import_module("pallas_trace")
+    except ModuleNotFoundError as exc:
+        if exc.name != "pallas_trace":
+            raise
+        local_pallas_trace_path = add_local_pallas_trace_path()
+        return importlib.import_module("pallas_trace")
+
+
+preloaded_lib = None
+local_pallas_trace_path = None
 try:
-    import pallas_trace
+    pallas_trace = importlib.import_module("pallas_trace")
 except ImportError as exc:
-    print(f"Failed to import pallas_trace: {exc}", file=sys.stderr)
-    print(
-        "Hint: activate the venv and ensure libpallas.so is reachable via LD_LIBRARY_PATH.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+    try:
+        preloaded_lib = preload_pallas_library()
+        pallas_trace = import_pallas_trace()
+    except ImportError as retry_exc:
+        print(f"Failed to import pallas_trace: {retry_exc}", file=sys.stderr)
+        if preloaded_lib is None:
+            print("Tried to preload libpallas.so from:", file=sys.stderr)
+            for candidate in PALLAS_LIB_CANDIDATES:
+                print(f"  - {candidate}", file=sys.stderr)
+        if local_pallas_trace_path is None:
+            print("Tried to add pallas_trace from:", file=sys.stderr)
+            for candidate in PALLAS_TRACE_PATH_CANDIDATES:
+                print(f"  - {candidate}", file=sys.stderr)
+        if "pallas_trace._core" in str(retry_exc):
+            print(
+                "Hint: the Python bindings are not built/installed for this interpreter. "
+                "Use the venv where pallas_trace was installed, or build/install the Pallas Python module.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Hint: activate the venv and ensure libpallas.so is reachable via LD_LIBRARY_PATH.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    except OSError as retry_exc:
+        print(f"Failed to preload libpallas.so: {retry_exc}", file=sys.stderr)
+        print("Tried these libpallas.so locations:", file=sys.stderr)
+        for candidate in PALLAS_LIB_CANDIDATES:
+            print(f"  - {candidate}", file=sys.stderr)
+        sys.exit(1)
 
 
 MPI_NAME_FILTERS = ("MPI_Test", "MPI_Irecv", "MPI_Isend", "MPI_Wait", "MPI_Barrier")
@@ -215,4 +290,3 @@ def print_api_debug(trace, archive, thread):
         print_relevant_attrs("archive", archive)
     if thread is not None:
         print_relevant_attrs("thread", thread)
-

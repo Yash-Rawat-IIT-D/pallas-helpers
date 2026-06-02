@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_inria-layout.sh"
 
 TITLE="INRIA Toolchain"
-BACKTITLE="Pallas / EZTrace / OTF2 / Blup"
+BACKTITLE="Pallas / EZTrace / OTF2 / StarPU / Chameleon / Blup"
 
 export NEWT_COLORS='
 root=green,black
@@ -36,6 +36,8 @@ resolve_env_script() {
         pallas-base) printf '%s\n' "${INRIA_SCRIPTS_DIR}/env-pallas-base.sh" ;;
         pallas-base-eztrace) printf '%s\n' "${INRIA_SCRIPTS_DIR}/env-pallas-base-eztrace.sh" ;;
         blup) printf '%s\n' "${INRIA_SCRIPTS_DIR}/env-blup.sh" ;;
+        starpu) printf '%s\n' "${INRIA_SCRIPTS_DIR}/env-starpu.sh" ;;
+        chameleon) printf '%s\n' "${INRIA_SCRIPTS_DIR}/env-chameleon.sh" ;;
         *) return 1 ;;
     esac
 }
@@ -48,6 +50,8 @@ resolve_rebuild_script() {
         pallas-base) printf '%s\n' "${INRIA_SCRIPTS_DIR}/rebuild-pallas-base.sh" ;;
         pallas-base-eztrace) printf '%s\n' "${INRIA_SCRIPTS_DIR}/rebuild-pallas-base-eztrace.sh" ;;
         blup) printf '%s\n' "${INRIA_SCRIPTS_DIR}/rebuild-blup.sh" ;;
+        starpu) printf '%s\n' "${INRIA_SCRIPTS_DIR}/rebuild-starpu.sh" ;;
+        chameleon) printf '%s\n' "${INRIA_SCRIPTS_DIR}/rebuild-chameleon.sh" ;;
         *) return 1 ;;
     esac
 }
@@ -105,18 +109,39 @@ show_message() {
         --msgbox "$1" 14 72
 }
 
+choose_env() {
+    local choice
+    choice="$(whiptail \
+        --backtitle "${BACKTITLE}" \
+        --title "${TITLE}" \
+        --menu "Choose an environment to apply:" 19 82 9 \
+        "otf2-eztrace" "normal OTF2 + EZTrace" \
+        "pallas" "Pallas tools and libraries" \
+        "pallas-eztrace" "EZTrace backed by Pallas" \
+        "pallas-base" "baseline Pallas tools and libraries" \
+        "pallas-base-eztrace" "EZTrace backed by baseline Pallas" \
+        "starpu" "local StarPU install" \
+        "chameleon" "local Chameleon install" \
+        "blup" "Blup environment and venv" \
+        3>&1 1>&2 2>&3)" || return 1
+
+    apply_environment "${choice}" "$(resolve_env_script "${choice}")" || true
+}
+
 choose_rebuild() {
     local choice
     local bmark_setting="OFF"
     choice="$(whiptail \
         --backtitle "${BACKTITLE}" \
         --title "${TITLE}" \
-        --menu "Choose a rebuild target:" 18 78 8 \
+        --menu "Choose a rebuild target:" 19 78 9 \
         "otf2-eztrace" "Rebuild normal OTF2 + EZTrace" \
         "pallas" "Rebuild Pallas" \
         "pallas-eztrace" "Rebuild EZTrace against Pallas" \
         "pallas-base" "Rebuild baseline Pallas" \
         "pallas-base-eztrace" "Rebuild EZTrace against baseline Pallas" \
+        "starpu" "Rebuild StarPU into local prefix" \
+        "chameleon" "Rebuild Chameleon into local prefix" \
         "blup" "Rebuild Blup config / venv" \
         3>&1 1>&2 2>&3)" || return 1
 
@@ -171,6 +196,8 @@ Environments:
   pallas-eztrace -> EZTrace built against Pallas
   pallas-base    -> baseline Pallas install
   pallas-base-eztrace -> EZTrace built against baseline Pallas
+  starpu         -> local StarPU install
+  chameleon      -> local Chameleon install
   blup           -> Blup environment / venv
 
 Rebuilds:
@@ -179,6 +206,8 @@ Rebuilds:
   pallas-eztrace
   pallas-base     (GUI can toggle BMARK)
   pallas-base-eztrace
+  starpu
+  chameleon
   blup
 
 Notes:
@@ -198,13 +227,8 @@ interactive_menu() {
         choice="$(whiptail \
             --backtitle "${BACKTITLE}" \
             --title "${TITLE}" \
-            --menu "Choose an action in this shell:" 20 88 10 \
-            "otf2-eztrace" "Apply env: normal OTF2 + EZTrace" \
-            "pallas" "Apply env: Pallas tools and libraries" \
-            "pallas-eztrace" "Apply env: EZTrace backed by Pallas" \
-            "pallas-base" "Apply env: baseline Pallas tools and libraries" \
-            "pallas-base-eztrace" "Apply env: EZTrace backed by baseline Pallas" \
-            "blup" "Apply env: Blup environment and venv" \
+            --menu "Choose an action in this shell:" 16 88 8 \
+            "env" "Apply an environment to this shell" \
             "rebuild" "Run a rebuild helper" \
             "utility" "Run a utility script" \
             "help" "Show available toolchains and helpers" \
@@ -212,8 +236,8 @@ interactive_menu() {
             3>&1 1>&2 2>&3)" || break
 
         case "${choice}" in
-            otf2-eztrace|pallas|pallas-eztrace|pallas-base|pallas-base-eztrace|blup)
-                apply_environment "${choice}" "$(resolve_env_script "${choice}")" || true
+            env)
+                choose_env || true
                 ;;
             rebuild)
                 choose_rebuild || true
