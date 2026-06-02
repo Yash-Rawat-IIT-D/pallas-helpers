@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_inria-layout.sh"
 
 export STARPU_SRC="$INRIA_ROOT/starpu"
-export STARPU_BUILD="$STARPU_SRC/build-local"
+export STARPU_BUILD="$STARPU_SRC/build"
 export STARPU_ROOT="$STARPU_SRC/install-starpu"
 
 JOBS="${JOBS:-$(nproc)}"
