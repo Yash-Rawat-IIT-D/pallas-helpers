@@ -163,194 +163,190 @@ def append_log(log_path: Path, message: str) -> None:
             handle.write("\n")
 
 
-def run_kill_trace(log_path: Path) -> None:
-    result = subprocess.run(
-        ["bash", str(DEFAULT_KILL_SCRIPT)],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    append_log(log_path, "$ bash " + str(DEFAULT_KILL_SCRIPT))
-    if result.stdout:
-        append_log(log_path, result.stdout)
-    if result.stderr:
-        append_log(log_path, result.stderr)
-    append_log(log_path, f"kill_trace_returncode={result.returncode}\n")
+class Runner:
+    def __init__(self, run_config: RunConfig):
+        self.run_config = run_config
+        self.matrix = load_matrix(run_config.matrix_path)
+        self.base_lines = load_config_lines(run_config.config_path)
 
+    @classmethod
+    def load(cls, runner_config_path: Path) -> "Runner":
+        return cls(RunConfig.load(runner_config_path))
 
-def print_case_status(index: int, status: RunStatus, elapsed_seconds: int, case_dir: Path) -> None:
-    color = GREEN if status == RunStatus.OK else RED
-    print(f"{color}test_{index}: {status.label} [{elapsed_seconds} sec]{RESET} ({case_dir})")
+    def run(self) -> int:
+        output_dir = self.run_config.output_root / ("test-run-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.run_config.runner_config_path, output_dir / self.run_config.runner_config_path.name)
+        shutil.copy2(self.run_config.matrix_path, output_dir / self.run_config.matrix_path.name)
+        self.write_run_metadata(output_dir)
 
+        overall_status = RunStatus.OK
+        for index, overrides in enumerate(self.matrix):
+            status, elapsed_seconds = self.run_test_case(index=index, overrides=overrides, output_dir=output_dir)
+            self.print_case_status(index, status, elapsed_seconds, output_dir / f"test_{index}")
+            if status != RunStatus.OK:
+                overall_status = status
 
-def build_run_command(run: RunConfig, config_path: Path) -> str:
-    return (
-        f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))} && "
-        f"export PALLAS_CONFIG_PATH={shlex.quote(str(config_path))} && "
-        f"mpirun -np {run.jobs} {run.resolved_command}"
-    )
+        return 0 if overall_status == RunStatus.OK else 1
 
-
-def build_read_benchmark_command(trace_file: Path) -> str:
-    return (
-        f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))} && "
-        f"pallas_read_benchmark {shlex.quote(str(trace_file))}"
-    )
-
-
-def write_run_metadata(output_dir: Path, run: RunConfig) -> None:
-    (output_dir / "run_metadata.txt").write_text(
-        "\n".join(
-            [
-                f"runner_config={run.runner_config_path}",
-                f"pallas_config={run.config_path}",
-                f"matrix={run.matrix_path}",
-                f"output_root={run.output_root}",
-                f"executable_path={run.executable_path}",
-                f"executable_name={run.executable_path.name}",
-                f"executable_command={run.executable_command}",
-                f"resolved_command={run.resolved_command}",
-                f"jobs={run.jobs}",
-                f"timeout_seconds={run.timeout_seconds}",
-            ]
+    def run_kill_trace(self, log_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(DEFAULT_KILL_SCRIPT)],
+            text=True,
+            capture_output=True,
+            check=False,
         )
-        + "\n",
-        encoding="utf-8",
-    )
+        append_log(log_path, "$ bash " + str(DEFAULT_KILL_SCRIPT))
+        if result.stdout:
+            append_log(log_path, result.stdout)
+        if result.stderr:
+            append_log(log_path, result.stderr)
+        append_log(log_path, f"kill_trace_returncode={result.returncode}\n")
 
+    def print_case_status(self, index: int, status: RunStatus, elapsed_seconds: int, case_dir: Path) -> None:
+        color = GREEN if status == RunStatus.OK else RED
+        print(f"{color}test_{index}: {status.label} [{elapsed_seconds} sec]{RESET} ({case_dir})")
 
-def run_test_case(
-    index: int,overrides: dict[str, str],
-    output_dir: Path, base_lines: list[str],run: RunConfig) -> tuple[RunStatus, int]:
-    start_time = time.perf_counter()
-    case_dir = output_dir / f"test_{index}"
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
-    case_dir.mkdir(parents=True)
+    def build_run_command(self, config_path: Path) -> str:
+        return (
+            f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))} && "
+            f"export PALLAS_CONFIG_PATH={shlex.quote(str(config_path))} && "
+            f"mpirun -np {self.run_config.jobs} {self.run_config.resolved_command}"
+        )
 
-    run_log = case_dir / "run.log"
-    config_path = case_dir / "pallas.config"
-    stdout_path = case_dir / "stdout.txt"
-    stderr_path = case_dir / "stderr.txt"
-    read_benchmark_stdout_path = case_dir / "read_benchmark_stdout.txt"
-    read_benchmark_stderr_path = case_dir / "read_benchmark_stderr.txt"
+    def build_read_benchmark_command(self, trace_file: Path) -> str:
+        return (
+            f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))} && "
+            f"pallas_read_benchmark {shlex.quote(str(trace_file))}"
+        )
 
-    config_path.write_text(apply_overrides(base_lines, overrides), encoding="utf-8")
-    append_log(run_log, f"test_index={index}")
-    append_log(run_log, f"config_path={config_path}")
-    append_log(run_log, f"overrides={json.dumps(overrides, sort_keys=True)}\n")
+    def write_run_metadata(self, output_dir: Path) -> None:
+        run = self.run_config
+        (output_dir / "run_metadata.txt").write_text(
+            "\n".join(
+                [
+                    f"runner_config={run.runner_config_path}",
+                    f"pallas_config={run.config_path}",
+                    f"matrix={run.matrix_path}",
+                    f"output_root={run.output_root}",
+                    f"executable_path={run.executable_path}",
+                    f"executable_name={run.executable_path.name}",
+                    f"executable_command={run.executable_command}",
+                    f"resolved_command={run.resolved_command}",
+                    f"jobs={run.jobs}",
+                    f"timeout_seconds={run.timeout_seconds}",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
-    run_kill_trace(run_log)
+    def run_test_case(self, index: int, overrides: dict[str, str], output_dir: Path) -> tuple[RunStatus, int]:
+        start_time = time.perf_counter()
+        case_dir = output_dir / f"test_{index}"
+        if case_dir.exists():
+            shutil.rmtree(case_dir)
+        case_dir.mkdir(parents=True)
 
-    command = build_run_command(run, config_path)
-    append_log(run_log, "$ bash -lc " + command + "\n")
+        run_log = case_dir / "run.log"
+        config_path = case_dir / "pallas.config"
+        stdout_path = case_dir / "stdout.txt"
+        stderr_path = case_dir / "stderr.txt"
+        read_benchmark_stdout_path = case_dir / "read_benchmark_stdout.txt"
+        read_benchmark_stderr_path = case_dir / "read_benchmark_stderr.txt"
 
-    with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
-        try:
-            result = subprocess.run(
-                ["bash", "-lc", command],
+        config_path.write_text(apply_overrides(self.base_lines, overrides), encoding="utf-8")
+        append_log(run_log, f"test_index={index}")
+        append_log(run_log, f"config_path={config_path}")
+        append_log(run_log, f"overrides={json.dumps(overrides, sort_keys=True)}\n")
+
+        self.run_kill_trace(run_log)
+
+        command = self.build_run_command(config_path)
+        append_log(run_log, "$ bash -lc " + command + "\n")
+
+        with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
+            try:
+                result = subprocess.run(
+                    ["bash", "-lc", command],
+                    cwd=case_dir,
+                    text=True,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    timeout=self.run_config.timeout_seconds,
+                    check=False,
+                )
+                append_log(run_log, f"status=completed\nreturncode={result.returncode}\n")
+            except subprocess.TimeoutExpired:
+                elapsed_seconds = int(time.perf_counter() - start_time)
+                append_log(run_log, f"status=timeout\ntimeout_seconds={self.run_config.timeout_seconds}\nelapsed_seconds={elapsed_seconds}\n")
+                self.run_kill_trace(run_log)
+                return RunStatus.TIMEOUT, elapsed_seconds
+
+        self.run_kill_trace(run_log)
+
+        trace_dir = case_dir / self.run_config.trace_dir_name
+        if trace_dir.exists():
+            append_log(run_log, f"trace_dir={trace_dir}\n")
+        else:
+            elapsed_seconds = int(time.perf_counter() - start_time)
+            append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
+            append_log(run_log, f"trace_dir_missing={self.run_config.trace_dir_name}\n")
+            return RunStatus.TRACE_MISSING, elapsed_seconds
+
+        trace_file = trace_dir / "eztrace_log.pallas"
+        if not trace_file.exists():
+            elapsed_seconds = int(time.perf_counter() - start_time)
+            append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
+            append_log(run_log, f"trace_file_missing={trace_file}\n")
+            return RunStatus.TRACE_MISSING, elapsed_seconds
+
+        benchmark_command = self.build_read_benchmark_command(trace_file)
+        append_log(run_log, "$ bash -lc " + benchmark_command + "\n")
+
+        with read_benchmark_stdout_path.open("w", encoding="utf-8") as stdout_handle, read_benchmark_stderr_path.open(
+            "w", encoding="utf-8"
+        ) as stderr_handle:
+            benchmark_result = subprocess.run(
+                ["bash", "-lc", benchmark_command],
                 cwd=case_dir,
                 text=True,
                 stdout=stdout_handle,
                 stderr=stderr_handle,
-                timeout=run.timeout_seconds,
                 check=False,
             )
-            append_log(run_log, f"status=completed\nreturncode={result.returncode}\n")
-        except subprocess.TimeoutExpired:
-            elapsed_seconds = int(time.perf_counter() - start_time)
-            append_log(run_log, f"status=timeout\ntimeout_seconds={run.timeout_seconds}\nelapsed_seconds={elapsed_seconds}\n")
-            run_kill_trace(run_log)
-            return RunStatus.TIMEOUT, elapsed_seconds
 
-    run_kill_trace(run_log)
-
-    trace_dir = case_dir / run.trace_dir_name
-    if trace_dir.exists():
-        append_log(run_log, f"trace_dir={trace_dir}\n")
-    else:
-        elapsed_seconds = int(time.perf_counter() - start_time)
-        append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
-        append_log(run_log, f"trace_dir_missing={run.trace_dir_name}\n")
-        return RunStatus.TRACE_MISSING, elapsed_seconds
-
-    trace_file = trace_dir / "eztrace_log.pallas"
-    if not trace_file.exists():
-        elapsed_seconds = int(time.perf_counter() - start_time)
-        append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
-        append_log(run_log, f"trace_file_missing={trace_file}\n")
-        return RunStatus.TRACE_MISSING, elapsed_seconds
-
-    benchmark_command = build_read_benchmark_command(trace_file)
-    append_log(run_log, "$ bash -lc " + benchmark_command + "\n")
-
-    with read_benchmark_stdout_path.open("w", encoding="utf-8") as stdout_handle, read_benchmark_stderr_path.open(
-        "w", encoding="utf-8"
-    ) as stderr_handle:
-        benchmark_result = subprocess.run(
-            ["bash", "-lc", benchmark_command],
-            cwd=case_dir,
-            text=True,
-            stdout=stdout_handle,
-            stderr=stderr_handle,
-            check=False,
+        benchmark_report_path = trace_file.with_suffix(".read_benchmark.txt")
+        append_log(
+            run_log,
+            "\n".join(
+                [
+                    "read_benchmark_status=completed",
+                    f"read_benchmark_returncode={benchmark_result.returncode}",
+                    f"read_benchmark_trace_file={trace_file}",
+                    f"read_benchmark_report={benchmark_report_path}",
+                    "",
+                ]
+            ),
         )
 
-    benchmark_report_path = trace_file.with_suffix(".read_benchmark.txt")
-    append_log(
-        run_log,
-        "\n".join(
-            [
-                "read_benchmark_status=completed",
-                f"read_benchmark_returncode={benchmark_result.returncode}",
-                f"read_benchmark_trace_file={trace_file}",
-                f"read_benchmark_report={benchmark_report_path}",
-                "",
-            ]
-        ),
-    )
+        if benchmark_result.returncode != 0:
+            elapsed_seconds = int(time.perf_counter() - start_time)
+            append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
+            return RunStatus.READ_BENCHMARK_FAILED, elapsed_seconds
 
-    if benchmark_result.returncode != 0:
         elapsed_seconds = int(time.perf_counter() - start_time)
         append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
-        return RunStatus.READ_BENCHMARK_FAILED, elapsed_seconds
-
-    elapsed_seconds = int(time.perf_counter() - start_time)
-    append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
-    if result.returncode != 0:
-        return RunStatus.FAILED, elapsed_seconds
-    return RunStatus.OK, elapsed_seconds
+        if result.returncode != 0:
+            return RunStatus.FAILED, elapsed_seconds
+        return RunStatus.OK, elapsed_seconds
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a Pallas test-case matrix from a tc_runner.json config.")
     parser.add_argument("runner_config", nargs="?", type=Path, default=DEFAULT_RUNNER_CONFIG)
     args = parser.parse_args()
-
-    run = RunConfig.load(args.runner_config)
-    matrix = load_matrix(run.matrix_path)
-    base_lines = load_config_lines(run.config_path)
-
-    output_dir = run.output_root / ("test-run-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
-    output_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(run.runner_config_path, output_dir / run.runner_config_path.name)
-    shutil.copy2(run.matrix_path, output_dir / run.matrix_path.name)
-    write_run_metadata(output_dir, run)
-
-    overall_status = RunStatus.OK
-    for index, overrides in enumerate(matrix):
-        status, elapsed_seconds = run_test_case(
-            index=index,
-            overrides=overrides,
-            output_dir=output_dir,
-            base_lines=base_lines,
-            run=run,
-        )
-        print_case_status(index, status, elapsed_seconds, output_dir / f"test_{index}")
-        if status != RunStatus.OK:
-            overall_status = status
-
-    return 0 if overall_status == RunStatus.OK else 1
+    return Runner.load(args.runner_config).run()
 
 
 if __name__ == "__main__":
