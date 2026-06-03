@@ -4,9 +4,9 @@
 #include <unistd.h>
 
 
-const int iterations = 1000;
-const long delay_us = 10000;
-const int payload_bytes = 8;
+int iterations = 1000;
+long delay_us = 10000;
+int payload_bytes = 8;
 
 static int parse_int_arg(char **argv, int index, int default_value) {
     if (argv[index] == NULL) {
@@ -40,26 +40,26 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // if (argc > 1) {
-    //     iterations = parse_int_arg(argv, 1, iterations);
-    // }
-    // if (argc > 2) {
-    //     delay_us = parse_long_arg(argv, 2, delay_us);
-    // }
-    // if (argc > 3) {
-    //     payload_bytes = parse_int_arg(argv, 3, payload_bytes);
-    // }
+    if (argc > 1) {
+        iterations = parse_int_arg(argv, 1, iterations);
+    }
+    if (argc > 2) {
+        delay_us = parse_long_arg(argv, 2, delay_us);
+    }
+    if (argc > 3) {
+        payload_bytes = parse_int_arg(argv, 3, payload_bytes);
+    }
 
-    // if (iterations < 1) {
-    //     iterations = 1;
-    // }
-    // if (delay_us < 0) {
-    //     delay_us = 0;
-    // }
+    if (iterations < 1) {
+        iterations = 1;
+    }
+    if (delay_us < 0) {
+        delay_us = 0;
+    }
 
-    // if (payload_bytes < 1) {
-    //     payload_bytes = 1;
-    // }
+    if (payload_bytes < 1) {
+        payload_bytes = 1;
+    }
 
     send_buffer = (char *)malloc((size_t)payload_bytes);
     recv_buffer = (char *)malloc((size_t)payload_bytes);

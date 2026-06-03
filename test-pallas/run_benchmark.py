@@ -47,6 +47,9 @@ class RunConfig:
     matrix_path: Path
     output_root: Path
     executable_path: Path
+    other_env_scripts: list[Path]
+    mpi_flags: str
+    executable_flags: str
     executable_command: str
     jobs: int
     timeout_seconds: int
@@ -59,7 +62,14 @@ class RunConfig:
     def resolved_command(self) -> str:
         executable = shlex.quote(str(self.executable_path))
         executable_name = shlex.quote(self.executable_path.name)
-        return self.executable_command.format(executable=executable, executable_name=executable_name)
+        executable_flags = self.executable_flags.strip()
+        if executable_flags:
+            executable_flags = " " + executable_flags
+        return self.executable_command.format(
+            executable=executable,
+            executable_name=executable_name,
+            executable_flags=executable_flags,
+        )
 
     @classmethod
     def load(cls, path: Path) -> "RunConfig":
@@ -88,6 +98,9 @@ class RunConfig:
             matrix_path=(config_dir / str(data["default_matrix"])).resolve(),
             output_root=(config_dir / str(data["default_output"])).resolve(),
             executable_path=(config_dir / str(data["executable_path"])).resolve(),
+            other_env_scripts=[(config_dir / str(item)).resolve() for item in data.get("other_env_scripts", [])],
+            mpi_flags=str(data.get("mpi_flags", "")),
+            executable_flags=str(data.get("executable_flags", "")),
             executable_command=str(data["executable_command"]),
             jobs=int(data["jobs"]),
             timeout_seconds=int(data["timeout_seconds"]),
@@ -100,10 +113,11 @@ class RunConfig:
             raise ValueError("jobs must be strictly positive.")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be strictly positive.")
-        if "{executable" in self.executable_command:
+        if "{" in self.executable_command:
             self.executable_command.format(
                 executable=shlex.quote(str(self.executable_path)),
                 executable_name=shlex.quote(self.executable_path.name),
+                executable_flags=(" " + self.executable_flags.strip()) if self.executable_flags.strip() else "",
             )
         for path_value, label in (
             (self.config_path, "default_config"),
@@ -114,6 +128,9 @@ class RunConfig:
         ):
             if not path_value.exists():
                 raise FileNotFoundError(f"{label} does not exist: {path_value}")
+        for index, path_value in enumerate(self.other_env_scripts):
+            if not path_value.exists():
+                raise FileNotFoundError(f"other_env_scripts[{index}] does not exist: {path_value}")
 
 
 def load_matrix(path: Path) -> list[dict[str, str]]:
@@ -165,7 +182,8 @@ def append_log(log_path: Path, message: str) -> None:
 
 class Runner:
     def __init__(self, run_config: RunConfig):
-        self.run_config = run_config
+        # The config is expected to contain relative paths, so we resolve them once here and pass absolute paths to subprocesses.
+        self.run_config = run_config 
         self.matrix = load_matrix(run_config.matrix_path)
         self.base_lines = load_config_lines(run_config.config_path)
 
@@ -207,16 +225,23 @@ class Runner:
         color = GREEN if status == RunStatus.OK else RED
         print(f"{color}test_{index}: {status.label} [{elapsed_seconds} sec]{RESET} ({case_dir})")
 
+    def build_source_command_prefix(self) -> str:
+        commands = [f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))}"]
+        commands.extend(f"source {shlex.quote(str(path))}" for path in self.run_config.other_env_scripts)
+        return " && ".join(commands)
+
     def build_run_command(self, config_path: Path) -> str:
+        mpi_flags = self.run_config.mpi_flags.strip()
+        mpi_flags_segment = f" {mpi_flags}" if mpi_flags else ""
         return (
-            f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))} && "
+            f"{self.build_source_command_prefix()} && "
             f"export PALLAS_CONFIG_PATH={shlex.quote(str(config_path))} && "
-            f"mpirun -np {self.run_config.jobs} {self.run_config.resolved_command}"
+            f"mpirun -np {self.run_config.jobs}{mpi_flags_segment} {self.run_config.resolved_command}"
         )
 
     def build_read_benchmark_command(self, trace_file: Path) -> str:
         return (
-            f"source {shlex.quote(str(DEFAULT_ENV_SCRIPT))} && "
+            f"{self.build_source_command_prefix()} && "
             f"pallas_read_benchmark {shlex.quote(str(trace_file))}"
         )
 
@@ -231,6 +256,9 @@ class Runner:
                     f"output_root={run.output_root}",
                     f"executable_path={run.executable_path}",
                     f"executable_name={run.executable_path.name}",
+                    f"other_env_scripts={json.dumps([str(path) for path in run.other_env_scripts])}",
+                    f"mpi_flags={run.mpi_flags}",
+                    f"executable_flags={run.executable_flags}",
                     f"executable_command={run.executable_command}",
                     f"resolved_command={run.resolved_command}",
                     f"jobs={run.jobs}",
