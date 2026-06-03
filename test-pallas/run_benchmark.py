@@ -14,7 +14,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_ROOT = Path(__file__).resolve().parent
-DEFAULT_RUNNER_CONFIG = TEST_ROOT / "tc_runner.json"
 DEFAULT_ENV_SCRIPT = ROOT / "scripts" / "env-pallas-eztrace.sh"
 DEFAULT_KILL_SCRIPT = ROOT / "scripts" / "kill-trace-procs.sh"
 GREEN = "\033[32m"
@@ -372,7 +371,7 @@ class Runner:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a Pallas test-case matrix from a tc_runner.json config.")
-    parser.add_argument("runner_config", nargs="?", type=Path, default=DEFAULT_RUNNER_CONFIG)
+    parser.add_argument("runner_config", type=Path)
     args = parser.parse_args()
     return Runner.load(args.runner_config).run()
 

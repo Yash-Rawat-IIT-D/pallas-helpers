@@ -1,0 +1,15 @@
+{
+  "default_config": "../../pallas/install-pallas/etc/pallas.config",
+  "default_matrix": "chameleon_matrix.json",
+  "default_output": ".",
+  "executable_path": "../../chameleon/install-chameleon/bin/chameleon_stesting",
+  "other_env_scripts": [
+    "../../scripts/env-starpu.sh",
+    "../../scripts/env-chameleon.sh"
+  ],
+  "mpi_flags": "--bind-to l3cache",
+  "executable_flags": "-o potrf -H --niter 1 -w -P 2 -n 10000",
+  "executable_command": "eztrace -m -t mpi {executable} {executable_flags}",
+  "jobs": 4,
+  "timeout_seconds": 1800
+}
