@@ -4,6 +4,6 @@
 !scripts/**
 !test-pallas/
 !test-pallas/**
-test-pallas/test-run-*
 test-pallas/__pycache__/
 test-pallas/.pytest_cache/
+/test-pallas/**/test-run-*/
