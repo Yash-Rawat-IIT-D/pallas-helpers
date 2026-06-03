@@ -1,0 +1,9 @@
+{
+  "default_config": "../pallas/install-pallas/etc/pallas.config",
+  "default_matrix": "spinloop_matrix.json",
+  "default_output": ".",
+  "executable_path": "mpi_test_spinloop",
+  "executable_command": "eztrace -m -t mpi {executable}",
+  "jobs": 2,
+  "timeout_seconds": 1800
+}
