@@ -1,0 +1,86 @@
+\ifdefined\HANDOUTMODE
+  \PassOptionsToClass{handout}{beamer}
+\fi
+\documentclass[10pt,aspectratio=169]{beamer}
+\usetheme{Warsaw}
+
+\title{Pallas Storage Compression Report}
+\author{Yash Rawat}
+\institute{Telecom SudParis, France}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Overview}
+  \begin{itemize}
+    \item<1-> Motivation: reduce the storage cost of redundant timing data in Pallas traces without compromising the usefulness of the recorded execution behavior.
+    \item<2-> Trace shaping: improved loop and sequence detection so repeated polling patterns can be represented more compactly.
+    \item<3-> Lossless encoding: evaluated timestamp and duration compression schemes that preserve exact values while reducing trace size.
+    \item<4-> Lossy encoding: introduced controlled approximation paths for highly redundant timing vectors to study compression-quality tradeoffs.
+    \item<5-> Benchmarking: built write-time, read-time, verification, and post-mortem analysis tooling to quantify overheads and compression gains.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Motivation}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \begin{block}{Spinloop Pattern}
+\small
+\begin{verbatim}
+for iter = 1 .. iterations:
+  MPI_Barrier(comm)
+
+  if rank == receiver:
+    MPI_Irecv(..., &req)
+    flag = 0
+    while !flag:
+      MPI_Test(&req, &flag, IGNORE)
+  else:
+    sleep(delay_us)
+    MPI_Isend(..., &req)
+    MPI_Wait(&req, IGNORE)
+\end{verbatim}
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{itemize}
+        \item<2-> Each delayed send forces the receiver into a hot polling loop with many failed \texttt{MPI\_Test} calls before one final success.
+        \item<3-> Across large iteration counts, this generates massive amounts of repetitive timing data with very similar sequence structure.
+        \item<4-> The resulting Pallas traces are often dominated by timestamp and duration vectors attached to these repeated polling sequences.
+        \item<5-> Our goal is to compress this redundancy while preserving the execution information needed for post-mortem analysis.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Supporting Data}
+  \small
+  \begin{block}{Spinloop Benchmark Cases}
+    \centering
+    \begin{tabular}{|c|c|c|}
+      \hline
+      Iterations & Delay ($\mu$s) & Trace Directory Size \\
+      \hline
+      1000 & 10000 & \textit{fill} \\
+      \hline
+      10000 & 10000 & \textit{fill} \\
+      \hline
+      10000 & 10000 & \textit{fill} \\
+      \hline
+      10000 & 100000 & \textit{fill} \\
+      \hline
+    \end{tabular}
+  \end{block}
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item Use this table to connect the workload parameters directly to the growth of the generated trace directory.
+    \item The directory size can later be compared against compression ratio, read overhead, and write overhead plots.
+  \end{itemize}
+\end{frame}
+
+\end{document}
