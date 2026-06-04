@@ -1,0 +1,13 @@
+{
+  "compressionAlgorithm": "ZSTD",
+  "durationLossyVariant": "QLinear",
+  "durationSubArrayEncoding": "None",
+  "encodingAlgorithm": "None",
+  "loopFindingAlgorithm": "BasicTruncated",
+  "maxLoopLength": 100,
+  "monotoneLossyVariant": "QLinear",
+  "overrideLoopPolicy": "true",
+  "timestampStorageAlgorithm": "Delta",
+  "tsSubArrayEncoding": "None",
+  "zstdCompressionLevel": 5
+}

@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+
+import argparse
+import csv
+import json
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+WRITE_TIME_FIELDS = {
+    "event_timestamps": "event_timestamps_write_ns",
+    "sequence_timestamps": "sequence_timestamps_write_ns",
+    "sequence_durations": "sequence_durations_write_ns",
+    "sequence_exclusive_durations": "sequence_exclusive_durations_write_ns",
+}
+
+VERIFICATION_TIME_FIELDS = {
+    "event_timestamps": "event_timestamps_verification_ns",
+    "sequence_timestamps": "sequence_timestamps_verification_ns",
+    "sequence_durations": "sequence_durations_verification_ns",
+    "sequence_exclusive_durations": "sequence_exclusive_durations_verification_ns",
+}
+
+VERIFICATION_VALUE_FIELDS = {
+    "event_timestamps": "event_timestamps_verification_values",
+    "sequence_timestamps": "sequence_timestamps_verification_values",
+    "sequence_durations": "sequence_durations_verification_values",
+    "sequence_exclusive_durations": "sequence_exclusive_durations_verification_values",
+}
+
+def parse_scalar(value: str) -> Any:
+    text = value.strip()
+    if not text:
+        return ""
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except ValueError:
+        return text
+
+
+def parse_key_value_file(path: Path) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = parse_scalar(value)
+    return values
+
+
+def write_single_row_csv(path: Path, row: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row.keys()))
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def sum_numeric(rows: list[dict[str, Any]], key: str) -> int:
+    total = 0
+    for row in rows:
+        total += int(row.get(key, 0))
+    return total
+
+
+@dataclass(frozen=True)
+class ThreadMetrics:
+    archive_id: int
+    thread_id: int
+    compression: dict[str, Any]
+    write_time: dict[str, Any]
+    write_verification: dict[str, Any]
+
+    @classmethod
+    def load(cls, thread_dir: Path) -> "ThreadMetrics":
+        compression = parse_key_value_file(thread_dir / "compression.txt")
+        write_time = parse_key_value_file(thread_dir / "write_time.txt")
+        write_verification = parse_key_value_file(thread_dir / "write_verification.txt")
+        return cls(
+            archive_id=int(compression["archive"]),
+            thread_id=int(compression["thread"]),
+            compression=compression,
+            write_time=write_time,
+            write_verification=write_verification,
+        )
+
+
+@dataclass(frozen=True)
+class TraceMetrics:
+    trace_dir: Path
+    read_metrics: dict[str, Any]
+
+    @classmethod
+    def load(cls, trace_dir: Path) -> "TraceMetrics":
+        return cls(
+            trace_dir=trace_dir,
+            read_metrics=parse_key_value_file(trace_dir / "eztrace_log.read_benchmark.txt"),
+        )
+
+    def read_row(self, test_id: str) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "test_id": test_id,
+            "trace_name": self.trace_dir.name,
+        }
+        row.update(self.read_metrics)
+        return row
+
+
+@dataclass
+class ArchiveAnalysis:
+    test_id: str
+    archive_dir: Path
+    trace_metrics: TraceMetrics
+    thread_metrics: list[ThreadMetrics]
+
+    @property
+    def archive_id(self) -> int:
+        return int(self.archive_dir.name.split("_", 1)[1])
+
+    @classmethod
+    def load(
+        cls,
+        test_id: str,
+        archive_dir: Path,
+        trace_metrics: TraceMetrics,
+    ) -> "ArchiveAnalysis":
+        thread_dirs = sorted(path for path in archive_dir.iterdir() if path.is_dir() and path.name.startswith("thread_"))
+        thread_metrics = [ThreadMetrics.load(thread_dir) for thread_dir in thread_dirs]
+        return cls(
+            test_id=test_id,
+            archive_dir=archive_dir,
+            trace_metrics=trace_metrics,
+            thread_metrics=thread_metrics,
+        )
+
+    def compression_row(self) -> dict[str, Any]:
+        pre_raw_sum = sum_numeric([tm.compression for tm in self.thread_metrics], "pre_raw")
+        raw_sum = sum_numeric([tm.compression for tm in self.thread_metrics], "raw")
+        compressed_sum = sum_numeric([tm.compression for tm in self.thread_metrics], "compressed")
+        effective_ratio = (raw_sum / compressed_sum) if compressed_sum else 0.0
+        true_ratio = (pre_raw_sum / compressed_sum) if compressed_sum else 0.0
+
+        row: dict[str, Any] = {
+            "test_id": self.test_id,
+            "trace_name": self.trace_metrics.trace_dir.name,
+            "archive_id": self.archive_id,
+            "thread_count": len(self.thread_metrics),
+            "pre_raw_sum": pre_raw_sum,
+            "raw_sum": raw_sum,
+            "compressed_sum": compressed_sum,
+            "effective_ratio": effective_ratio,
+            "true_ratio": true_ratio,
+        }
+        return row
+
+    def write_row(self) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "test_id": self.test_id,
+            "trace_name": self.trace_metrics.trace_dir.name,
+            "archive_id": self.archive_id,
+            "thread_count": len(self.thread_metrics),
+        }
+
+        total_write_ns = 0
+        total_verification_ns = 0
+        total_net_write_ns = 0
+        total_values = 0
+
+        for family, write_key in WRITE_TIME_FIELDS.items():
+            verification_key = VERIFICATION_TIME_FIELDS[family]
+            value_key = VERIFICATION_VALUE_FIELDS[family]
+            write_ns = sum_numeric([tm.write_time for tm in self.thread_metrics], write_key)
+            verification_ns = sum_numeric([tm.write_verification for tm in self.thread_metrics], verification_key)
+            value_count = sum_numeric([tm.write_verification for tm in self.thread_metrics], value_key)
+            net_write_ns = write_ns - verification_ns
+            if net_write_ns < 0:
+                raise ValueError(
+                    f"Archive {self.archive_id} in {self.trace_metrics.trace_dir} has negative net write time for {family}: "
+                    f"{write_ns} - {verification_ns}"
+                )
+
+            row[f"{family}_values"] = value_count
+            row[f"{family}_write_ns_raw"] = write_ns
+            row[f"{family}_verification_ns"] = verification_ns
+            row[f"{family}_write_ns"] = net_write_ns
+
+            total_write_ns += write_ns
+            total_verification_ns += verification_ns
+            total_net_write_ns += net_write_ns
+            total_values += value_count
+
+        row["total_values"] = total_values
+        row["total_write_ns_raw"] = total_write_ns
+        row["total_verification_ns"] = total_verification_ns
+        row["total_write_ns"] = total_net_write_ns
+        return row
+
+    def write_csvs(self, output_archive_dir: Path) -> None:
+        write_single_row_csv(output_archive_dir / "archive_compression.csv", self.compression_row())
+        write_single_row_csv(output_archive_dir / "archive_write.csv", self.write_row())
+
+
+@dataclass
+class TestAnalysis:
+    test_dir: Path
+    output_dir: Path
+
+    @property
+    def test_id(self) -> str:
+        return self.test_dir.name
+
+    def find_trace_dir(self) -> Path:
+        trace_files = sorted(self.test_dir.glob("*/eztrace_log.pallas"))
+        if len(trace_files) != 1:
+            raise ValueError(f"Expected exactly one trace file under {self.test_dir}, found {len(trace_files)}")
+        return trace_files[0].parent
+
+    def config_values(self) -> dict[str, Any]:
+        return parse_key_value_file(self.test_dir / "pallas.config")
+
+    def write_trace_config(self, output_trace_dir: Path, config_values: dict[str, Any]) -> None:
+        (output_trace_dir / "trace_config.json").write_text(
+            json.dumps(config_values, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def trace_compression_row(self, trace_name: str, archive_analyses: list[ArchiveAnalysis]) -> dict[str, Any]:
+        pre_raw_sum = sum(analysis.compression_row()["pre_raw_sum"] for analysis in archive_analyses)
+        raw_sum = sum(analysis.compression_row()["raw_sum"] for analysis in archive_analyses)
+        compressed_sum = sum(analysis.compression_row()["compressed_sum"] for analysis in archive_analyses)
+        effective_ratio = (raw_sum / compressed_sum) if compressed_sum else 0.0
+        true_ratio = (pre_raw_sum / compressed_sum) if compressed_sum else 0.0
+        return {
+            "test_id": self.test_id,
+            "trace_name": trace_name,
+            "archive_count": len(archive_analyses),
+            "pre_raw_sum": pre_raw_sum,
+            "raw_sum": raw_sum,
+            "compressed_sum": compressed_sum,
+            "effective_ratio": effective_ratio,
+            "true_ratio": true_ratio,
+        }
+
+    def trace_write_row(self, trace_name: str, archive_analyses: list[ArchiveAnalysis]) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "test_id": self.test_id,
+            "trace_name": trace_name,
+            "archive_count": len(archive_analyses),
+        }
+
+        total_write_ns_raw = 0
+        total_verification_ns = 0
+        total_write_ns = 0
+        total_values = 0
+
+        archive_write_rows = [analysis.write_row() for analysis in archive_analyses]
+        for family in WRITE_TIME_FIELDS:
+            family_values = sum_numeric(archive_write_rows, f"{family}_values")
+            family_write_raw = sum_numeric(archive_write_rows, f"{family}_write_ns_raw")
+            family_verification = sum_numeric(archive_write_rows, f"{family}_verification_ns")
+            family_write = sum_numeric(archive_write_rows, f"{family}_write_ns")
+            row[f"{family}_values"] = family_values
+            row[f"{family}_write_ns_raw"] = family_write_raw
+            row[f"{family}_verification_ns"] = family_verification
+            row[f"{family}_write_ns"] = family_write
+            total_values += family_values
+            total_write_ns_raw += family_write_raw
+            total_verification_ns += family_verification
+            total_write_ns += family_write
+
+        row["total_values"] = total_values
+        row["total_write_ns_raw"] = total_write_ns_raw
+        row["total_verification_ns"] = total_verification_ns
+        row["total_write_ns"] = total_write_ns
+        return row
+
+    def analyse(self) -> None:
+        trace_dir = self.find_trace_dir()
+        trace_metrics = TraceMetrics.load(trace_dir)
+        config_values = self.config_values()
+
+        output_trace_dir = self.output_dir / self.test_id / trace_dir.name
+        output_trace_dir.mkdir(parents=True, exist_ok=True)
+        self.write_trace_config(output_trace_dir, config_values)
+
+        archive_dirs = sorted(path for path in trace_dir.iterdir() if path.is_dir() and path.name.startswith("archive_"))
+        archive_analyses: list[ArchiveAnalysis] = []
+        for archive_dir in archive_dirs:
+            archive_analysis = ArchiveAnalysis.load(self.test_id, archive_dir, trace_metrics)
+            archive_analyses.append(archive_analysis)
+            archive_output_dir = output_trace_dir / archive_dir.name
+            archive_output_dir.mkdir(parents=True, exist_ok=True)
+            archive_analysis.write_csvs(archive_output_dir)
+
+        write_single_row_csv(output_trace_dir / "trace_read.csv", trace_metrics.read_row(self.test_id))
+        write_single_row_csv(output_trace_dir / "trace_compression.csv", self.trace_compression_row(trace_dir.name, archive_analyses))
+        write_single_row_csv(output_trace_dir / "trace_write.csv", self.trace_write_row(trace_dir.name, archive_analyses))
+
+
+@dataclass
+class RunAnalysis:
+    run_dir: Path
+    output_dir: Path
+
+    @classmethod
+    def load(cls, run_dir: Path) -> "RunAnalysis":
+        resolved_run_dir = run_dir.resolve()
+        if not resolved_run_dir.is_dir():
+            raise FileNotFoundError(f"Run directory does not exist: {resolved_run_dir}")
+
+        output_dir = cls.default_output_dir(resolved_run_dir)
+        return cls(run_dir=resolved_run_dir, output_dir=output_dir)
+
+    @staticmethod
+    def default_output_dir(run_dir: Path) -> Path:
+        name = run_dir.name
+        if name.startswith("test-run-"):
+            suffix = name[len("test-run-"):]
+            output_name = f"run-analysis-{suffix}"
+        else:
+            output_name = f"{name}-analysis"
+        return run_dir.parent / output_name
+
+    def discover_tests(self) -> list[Path]:
+        test_dirs = sorted(path for path in self.run_dir.iterdir() if path.is_dir() and path.name.startswith("test_"))
+        if not test_dirs:
+            raise ValueError(f"No test_* directories found under {self.run_dir}")
+        return test_dirs
+
+    def write_metadata(self) -> None:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "source_run_dir": str(self.run_dir),
+            "output_dir": str(self.output_dir),
+            "baseline_test_id": "test_0",
+            "phase": "first_pass_csv_generation",
+        }
+        (self.output_dir / "analysis_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+
+    def analyse(self) -> None:
+        self.write_metadata()
+        if self.output_dir.exists():
+            for child in self.output_dir.iterdir():
+                if child.name != "analysis_metadata.json":
+                    if child.is_dir():
+                        shutil.rmtree(child)
+                    else:
+                        child.unlink()
+        for test_dir in self.discover_tests():
+            TestAnalysis(test_dir=test_dir, output_dir=self.output_dir).analyse()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate first-pass hierarchical CSV metrics for a Pallas benchmark run directory.")
+    parser.add_argument("run_directory", type=Path, help="Path to a test-run-* directory produced by run_benchmark.py")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    run_analysis = RunAnalysis.load(args.run_directory)
+    run_analysis.analyse()
+    print(run_analysis.output_dir)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

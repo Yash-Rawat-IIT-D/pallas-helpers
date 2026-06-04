@@ -8,7 +8,7 @@
     "../../scripts/env-chameleon.sh"
   ],
   "mpi_flags": "--bind-to l3cache",
-  "executable_flags": "-o potrf -H --niter 1 -w -P 2 -n 10000",
+  "executable_flags": "-o potrf -H --niter 1 -w -P 2 -n 24000",
   "executable_command": "eztrace -m -t mpi {executable} {executable_flags}",
   "jobs": 4,
   "timeout_seconds": 1800

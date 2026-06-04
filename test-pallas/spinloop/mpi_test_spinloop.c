@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 
-int iterations = 1000;
+int iterations = 100;
 long delay_us = 10000;
 int payload_bytes = 8;
 
