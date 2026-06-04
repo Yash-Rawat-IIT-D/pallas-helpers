@@ -349,6 +349,8 @@ class GenericGraphing:
         output_path: Path,
         annotation_key: str | None = None,
         annotation_formatter=None,
+        annotate_segment_values: bool = False,
+        segment_formatter=None,
     ) -> None:
         plt = GenericGraphing._plt()
         categories = [str(row[category_key]) for row in rows]
@@ -358,13 +360,26 @@ class GenericGraphing:
         fig, ax = plt.subplots(figsize=(10, 6))
         for key in series_keys:
             values = [float(row.get(key, 0.0)) for row in rows]
-            ax.bar(x_positions, values, bottom=bottoms, label=key)
+            bars = ax.bar(x_positions, values, bottom=bottoms, label=key)
+            if annotate_segment_values:
+                for bar, value, bottom in zip(bars, values, bottoms):
+                    if value <= 0:
+                        continue
+                    text = segment_formatter(value) if segment_formatter else str(value)
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bottom + value / 2,
+                        text,
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                    )
             bottoms = [bottom + value for bottom, value in zip(bottoms, values)]
 
         ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.set_xticks(x_positions, categories)
-        ax.legend()
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.4)
         ax.grid(axis="y", alpha=0.3)
 
         if annotation_key is not None:
@@ -381,6 +396,111 @@ class GenericGraphing:
         plt.close(fig)
 
     @staticmethod
+    def stacked_bar_with_optional_replay(
+        rows: list[dict[str, Any]],
+        category_key: str,
+        primary_series_keys: list[str],
+        replay_key: str,
+        title: str,
+        ylabel: str,
+        output_path: Path,
+        annotation_key: str | None = None,
+        annotation_formatter=None,
+        replay_annotation_key: str | None = None,
+        replay_annotation_formatter=None,
+        annotate_segment_values: bool = False,
+        segment_formatter=None,
+    ) -> None:
+        plt = GenericGraphing._plt()
+        categories = [str(row[category_key]) for row in rows]
+        x_positions = list(range(len(rows)))
+        has_replay = any(float(row.get(replay_key, 0.0)) > 0.0 for row in rows)
+
+        if has_replay:
+            fig, (ax_primary, ax_replay) = plt.subplots(
+                2,
+                1,
+                figsize=(10, 9),
+                sharex=True,
+                gridspec_kw={"height_ratios": [3, 1]},
+            )
+        else:
+            fig, ax_primary = plt.subplots(figsize=(10, 6))
+            ax_replay = None
+
+        bottoms = [0.0 for _ in rows]
+        for key in primary_series_keys:
+            values = [float(row.get(key, 0.0)) for row in rows]
+            bars = ax_primary.bar(x_positions, values, bottom=bottoms, label=key)
+            if annotate_segment_values:
+                for bar, value, bottom in zip(bars, values, bottoms):
+                    if value <= 0:
+                        continue
+                    text = segment_formatter(value) if segment_formatter else str(value)
+                    ax_primary.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bottom + value / 2,
+                        text,
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                    )
+            bottoms = [bottom + value for bottom, value in zip(bottoms, values)]
+
+        ax_primary.set_title(title)
+        ax_primary.set_ylabel(ylabel)
+        ax_primary.legend(loc="upper right", fontsize=8, framealpha=0.4)
+        ax_primary.grid(axis="y", alpha=0.3)
+
+        if annotation_key is not None:
+            for index, row in enumerate(rows):
+                annotation_value = row.get(annotation_key)
+                if annotation_value is None:
+                    continue
+                text = annotation_formatter(annotation_value) if annotation_formatter else str(annotation_value)
+                ax_primary.text(index, bottoms[index], text, ha="center", va="bottom", fontsize=8)
+
+        if has_replay and ax_replay is not None:
+            replay_values = [float(row.get(replay_key, 0.0)) for row in rows]
+            bars = ax_replay.bar(x_positions, replay_values, label=replay_key)
+            if annotate_segment_values:
+                for bar, value in zip(bars, replay_values):
+                    if value <= 0:
+                        continue
+                    text = segment_formatter(value) if segment_formatter else str(value)
+                    ax_replay.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        value / 2,
+                        text,
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                    )
+            if replay_annotation_key is not None:
+                for index, row in enumerate(rows):
+                    annotation_value = row.get(replay_annotation_key)
+                    if annotation_value is None:
+                        continue
+                    text = (
+                        replay_annotation_formatter(annotation_value)
+                        if replay_annotation_formatter
+                        else str(annotation_value)
+                    )
+                    ax_replay.text(index, replay_values[index], text, ha="center", va="bottom", fontsize=8)
+
+            ax_replay.set_title("Replay Normalized Read Time")
+            ax_replay.set_ylabel(ylabel)
+            ax_replay.grid(axis="y", alpha=0.3)
+            ax_replay.set_xticks(x_positions, categories)
+        else:
+            ax_primary.set_xticks(x_positions, categories)
+
+        fig.tight_layout()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path)
+        plt.close(fig)
+
+    @staticmethod
     def grouped_bar(
         rows: list[dict[str, Any]],
         category_key: str,
@@ -388,6 +508,9 @@ class GenericGraphing:
         title: str,
         ylabel: str,
         output_path: Path,
+        annotate_values: bool = False,
+        annotation_formatter=None,
+        legend_loc: str = "upper right",
     ) -> None:
         plt = GenericGraphing._plt()
         categories = [str(row[category_key]) for row in rows]
@@ -398,12 +521,23 @@ class GenericGraphing:
         for index, key in enumerate(series_keys):
             values = [float(row.get(key, 0.0)) for row in rows]
             shifted = [x + (index - (len(series_keys) - 1) / 2) * width for x in x_positions]
-            ax.bar(shifted, values, width=width, label=key)
+            bars = ax.bar(shifted, values, width=width, label=key)
+            if annotate_values:
+                for bar, value in zip(bars, values):
+                    text = annotation_formatter(value) if annotation_formatter else str(value)
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height(),
+                        text,
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                    )
 
         ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.set_xticks(x_positions, categories)
-        ax.legend()
+        ax.legend(loc=legend_loc, fontsize=8, framealpha=0.4)
         ax.grid(axis="y", alpha=0.3)
         fig.tight_layout()
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -415,7 +549,8 @@ class GenericGraphing:
 class ArchiveGraphAnalysis:
     archive_id: int
     graph_dir: Path
-    rows: list[dict[str, Any]]
+    write_rows: list[dict[str, Any]]
+    compression_rows: list[dict[str, Any]]
 
     @staticmethod
     def _normalize_write_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -438,11 +573,11 @@ class ArchiveGraphAnalysis:
         return normalized
 
     def write(self) -> None:
-        normalized_rows = [self._normalize_write_row(row) for row in self.rows]
+        normalized_rows = [self._normalize_write_row(row) for row in self.write_rows]
         write_csv = self.graph_dir / f"archive_{self.archive_id}" / "archive_write.csv"
         compression_csv = self.graph_dir / f"archive_{self.archive_id}" / "archive_compression.csv"
         write_rows_csv(write_csv, normalized_rows)
-        write_rows_csv(compression_csv, self.rows)
+        write_rows_csv(compression_csv, self.compression_rows)
 
         GenericGraphing.stacked_bar(
             normalized_rows,
@@ -452,15 +587,20 @@ class ArchiveGraphAnalysis:
             ylabel="write ns / total value",
             output_path=self.graph_dir / f"archive_{self.archive_id}" / "archive_write.png",
             annotation_key="total_write_ns",
-            annotation_formatter=lambda value: f"{int(value) / 1e6:.2f} ms",
+            annotation_formatter=lambda value: f"total={int(value) / 1e6:.2f} ms",
+            annotate_segment_values=True,
+            segment_formatter=lambda value: f"{float(value):.2f}",
         )
         GenericGraphing.grouped_bar(
-            self.rows,
+            self.compression_rows,
             category_key="test_id",
             series_keys=["effective_ratio", "true_ratio"],
             title=f"Archive {self.archive_id} Compression Ratios",
             ylabel="compression ratio",
             output_path=self.graph_dir / f"archive_{self.archive_id}" / "archive_compression.png",
+            annotate_values=True,
+            annotation_formatter=lambda value: f"{float(value):.3f}",
+            legend_loc="upper left",
         )
 
 
@@ -512,6 +652,7 @@ class OverallGraphAnalysis:
             "replay_token_occurrences": replay_tokens,
             "total_units": total_units,
             "total_read_ns": int(total_read_ns),
+            "replay_read_ns": int(replay_read_ns),
             "total_read_ns_per_unit": (total_read_ns / total_units) if total_units else 0.0,
             "replay_read_ns_per_total_unit": (replay_read_ns / total_units) if total_units else 0.0,
             "replay_read_ns_per_token": (replay_read_ns / replay_tokens) if replay_tokens else 0.0,
@@ -563,7 +704,9 @@ class OverallGraphAnalysis:
             ylabel="write ns / total value",
             output_path=self.graph_dir / "overall_write.png",
             annotation_key="total_write_ns",
-            annotation_formatter=lambda value: f"{int(value) / 1e6:.2f} ms",
+            annotation_formatter=lambda value: f"total={int(value) / 1e6:.2f} ms",
+            annotate_segment_values=True,
+            segment_formatter=lambda value: f"{float(value):.2f}",
         )
         GenericGraphing.grouped_bar(
             self.trace_compression_rows,
@@ -572,23 +715,30 @@ class OverallGraphAnalysis:
             title="Overall Compression Ratios",
             ylabel="compression ratio",
             output_path=self.graph_dir / "overall_compression.png",
+            annotate_values=True,
+            annotation_formatter=lambda value: f"{float(value):.3f}",
+            legend_loc="upper left",
         )
-        GenericGraphing.stacked_bar(
+        GenericGraphing.stacked_bar_with_optional_replay(
             normalized_read_rows,
             category_key="test_id",
-            series_keys=[
+            primary_series_keys=[
                 "event_timestamps_read_ns_per_total_unit",
                 "sequence_timestamps_read_ns_per_total_unit",
                 "sequence_durations_read_ns_per_total_unit",
                 "sequence_exclusive_durations_read_ns_per_total_unit",
-                "replay_read_ns_per_total_unit",
                 "other_read_ns_per_total_unit",
             ],
+            replay_key="replay_read_ns_per_total_unit",
             title="Overall Normalized Read Time",
             ylabel="read ns / total unit",
             output_path=self.graph_dir / "overall_read.png",
             annotation_key="total_read_ns",
-            annotation_formatter=lambda value: f"{int(value) / 1e6:.2f} ms",
+            annotation_formatter=lambda value: f"total={int(value) / 1e6:.2f} ms",
+            replay_annotation_key="replay_read_ns",
+            replay_annotation_formatter=lambda value: f"replay={int(value) / 1e6:.2f} ms",
+            annotate_segment_values=True,
+            segment_formatter=lambda value: f"{float(value):.2f}",
         )
 
 
@@ -689,10 +839,8 @@ class RunAnalysis:
                 ArchiveGraphAnalysis(
                     archive_id=archive_id,
                     graph_dir=graph_dir,
-                    rows=[
-                        {**write_row, **{k: compression_row[k] for k in ("pre_raw_sum", "raw_sum", "compressed_sum", "effective_ratio", "true_ratio")}}
-                        for write_row, compression_row in zip(archive_rows, compression_rows)
-                    ],
+                    write_rows=archive_rows,
+                    compression_rows=compression_rows,
                 ).write()
 
         OverallGraphAnalysis(
