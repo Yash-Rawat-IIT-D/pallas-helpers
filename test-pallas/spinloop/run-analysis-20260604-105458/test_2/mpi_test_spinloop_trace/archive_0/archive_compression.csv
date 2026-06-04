@@ -1,2 +1,0 @@
-test_id,trace_name,archive_id,thread_count,pre_raw_sum,raw_sum,compressed_sum,effective_ratio,true_ratio
-test_2,mpi_test_spinloop_trace,0,1,15264,7472,14676,0.5091305532842736,1.0400654129190514
