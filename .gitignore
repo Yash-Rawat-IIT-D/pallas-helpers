@@ -4,7 +4,8 @@
 !scripts/**
 !test-pallas/
 !test-pallas/**
-!report
+!report/
+!report/**
 report/build/
 test-pallas/__pycache__/
 test-pallas/.pytest_cache/
