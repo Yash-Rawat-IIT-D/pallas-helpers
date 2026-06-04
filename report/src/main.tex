@@ -3,6 +3,7 @@
 \fi
 \documentclass[10pt,aspectratio=169]{beamer}
 \usetheme{Warsaw}
+\usepackage{graphicx}
 
 \title{Pallas Storage Compression Report}
 \author{Yash Rawat}
@@ -69,9 +70,9 @@ for iter = 1 .. iterations:
       \hline
       10000 & 10000 & \textit{fill} \\
       \hline
-      10000 & 10000 & \textit{fill} \\
+      1000 & 50000 & \textit{fill} \\
       \hline
-      10000 & 100000 & \textit{fill} \\
+      10000 & 50000 & \textit{fill} \\
       \hline
     \end{tabular}
   \end{block}
@@ -82,5 +83,123 @@ for iter = 1 .. iterations:
     \item The directory size can later be compared against compression ratio, read overhead, and write overhead plots.
   \end{itemize}
 \end{frame}
+
+\begin{frame}{Earlier Pallas Storage Path}
+  \small
+  \begin{block}{Baseline write-side flow before subarray-specific encoding}
+    \centering
+    \texttt{ThreadWriter / instrumentation} \\
+    $\downarrow$ \\
+    \texttt{LinkedVector::add(...)} / \texttt{LinkedDurationVector::add(...)} \\
+    $\downarrow$ \\
+    \texttt{storeThread(...)} \\
+    $\downarrow$ \\
+    \texttt{storeEvent(...)} / \texttt{storeSequence(...)} \\
+    $\downarrow$ \\
+    \texttt{LinkedVector::write\_to\_file(...)} / \texttt{LinkedDurationVector::write\_to\_file(...)} \\
+    $\downarrow$ \\
+    raw subarray values written to archive files
+  \end{block}
+
+  \begin{itemize}
+    \item<2-> During instrumentation, timestamps and durations are appended through \texttt{add(...)} into linked vectors that are later flushed to disk.
+    \item<3-> In \texttt{pallas\_storage.cpp}, \texttt{storeThread(...)} iterates over the thread content and delegates timing-vector storage to \texttt{storeEvent(...)} and \texttt{storeSequence(...)}.
+    \item<4-> Historically, this path mostly treated each subarray as raw timing data that would be passed to the generic file compression stage.
+    \item<5-> The new subarray encoding work does not replace the overall archive layout; it inserts an extra transformation step inside this existing write path.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{SubArrayEncoding and SubArrayCodec}
+  \small
+  \begin{itemize}
+    \item<1-> The new \texttt{enum class SubArrayEncoding} in \texttt{pallas\_linked\_vector.h} defines the per-subarray encoding policy: \texttt{None}, \texttt{Delta2VintTimestamp}, \texttt{Delta2VintDuration}, \texttt{MonotoneLossy}, and \texttt{DurationLossy}.
+    \item<2-> Each \texttt{LinkedVector::SubArray} or \texttt{LinkedDurationVector::SubArray} stores its own \texttt{sub\_arr\_encoding}, so the choice is made at subarray granularity rather than once for the whole vector.
+    \item<3-> The abstract base class \texttt{SubArrayCodec} provides the interface through \texttt{can\_encode(...)}, \texttt{encode(...)}, and \texttt{decode(...)}.
+    \item<4-> Concrete implementations such as \texttt{NoneCodec}, \texttt{TimestampDelta2VintCodec}, \texttt{DurationDelta2VintCodec}, \texttt{MonotoneLossyCodec}, and \texttt{DurationLossyCodec} are selected by \texttt{get\_subarray\_codec(...)}.
+    \item<5-> The output of \texttt{encode(...)} is an \texttt{encodedArray} and its logical size \texttt{enc\_size}, which is exactly the quantity that influences the downstream storage footprint.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Where the Codec Enters the Storage Path}
+  \small
+  \begin{block}{Write-side flow}
+    \centering
+    \texttt{storeEvent(...)} / \texttt{storeSequence(...)} \\
+    $\downarrow$ \\
+    \texttt{timestamps/durations->write\_to\_file(...)} \\
+    $\downarrow$ \\
+    \texttt{SubArray::write\_to\_file(...)} \\
+    $\downarrow$ \\
+    \texttt{get\_subarray\_codec(sub\_arr\_encoding)} \\
+    $\downarrow$ \\
+    \texttt{codec->encode(...)} $\rightarrow$ \texttt{enc\_size} \\
+    $\downarrow$ \\
+    \texttt{\_pallas\_compress\_write(encodedArray, enc\_size, ...)}
+  \end{block}
+
+  \begin{itemize}
+    \item<2-> In \texttt{pallas\_storage.cpp}, \texttt{storeEvent(...)} and \texttt{storeSequence(...)} are the earlier entry points that push timing vectors toward archive storage.
+    \item<3-> The encoding hook itself is in \texttt{LinkedVector::SubArray::write\_to\_file(...)} and \texttt{LinkedDurationVector::SubArray::write\_to\_file(...)}.
+    \item<4-> If \texttt{codec->can\_encode(...)} fails, the subarray falls back to \texttt{SubArrayEncoding::None}; otherwise \texttt{codec->encode(...)} reduces or reshapes the logical payload before file compression.
+    \item<5-> This means the codec affects size twice: first through the encoded representation size \texttt{enc\_size}, and then again through how well that representation compresses in \texttt{\_pallas\_compress\_write(...)}.
+    \item<6-> On the read path, \texttt{LinkedVector::load\_data(...)} and \texttt{LinkedDurationVector::load\_data(...)} reconstruct values using the matching \texttt{codec->decode(...)} implementation.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Delta2Vint Codec: General Idea}
+  \small
+  \begin{itemize}
+    \item<1-> \texttt{Delta2VintTimestampCodec} and \texttt{Delta2VintDurationCodec} are lossless codecs: they preserve the exact original values after decoding.
+    \item<2-> Instead of storing every timestamp or duration as a full 64-bit integer, the codec stores a base value followed by deltas, and then mostly delta-of-delta values.
+    \item<3-> For repeated polling behavior, both timestamps and durations evolve smoothly, so these delta-of-delta values are often small in magnitude.
+    \item<4-> Smaller logical values reduce the raw encoded footprint before generic compression, which is why we expect \texttt{raw} bytes to drop relative to \texttt{pre\_raw} bytes.
+    \item<5-> This also helps ZSTD because it receives a denser and more structured byte stream after \texttt{encode(...)}, improving the final compressed size without losing exactness.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Delta2Vint Codec: LEB128 and ZigZag}
+  \scriptsize
+  \begin{columns}[T]
+    \begin{column}{0.54\textwidth}
+      \begin{itemize}\setlength{\itemsep}{0.35em}
+        \item<1-> The implementation uses a variable-length integer representation through \texttt{write\_varint(...)} and \texttt{read\_varint(...)}, which is effectively a LEB128-style byte encoding.
+        \item<2-> Small values occupy fewer bytes, so when delta-of-delta terms stay near zero, the encoded stream becomes much smaller than a flat array of 64-bit words.
+        \item<3-> Because delta-of-delta values can be negative, the codec applies ZigZag conversion through \texttt{zigzag\_encode(...)} and \texttt{zigzag\_decode(...)} before writing the varints.
+        \item<4-> The timestamp path assumes non-negative first-order deltas, while the duration path allows the first delta itself to be signed; this is the main implementation difference between the two variants.
+        \item<5-> The result is still fully lossless: the decoder reconstructs the same sequence of timestamps or durations from the compact byte representation.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.75\textwidth}
+      \centering
+      \includegraphics[width=\linewidth,height=0.75\textheight,keepaspectratio]{../images/broll/vint.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Lossy Encoding: Modular Design}
+  \small
+  \begin{itemize}
+    \item<1-> Beyond lossless compression, Pallas now exposes lossy subarray encodings through \texttt{SubArrayEncoding::MonotoneLossy} and \texttt{SubArrayEncoding::DurationLossy}.
+    \item<2-> The current implementation is modular: different predictor families are represented explicitly through \texttt{MonotoneLossyVariant} and \texttt{DurationLossyVariant}.
+    \item<3-> For timestamps, the current branch already distinguishes multiple monotone variants such as \texttt{QLinear}, \texttt{QLinearMeanRep}, and related extensions.
+    \item<4-> For durations, the new \texttt{DurationLossy} path introduces variants such as \texttt{QLinear} and \texttt{QLinearMeanRep}, with the same goal of keeping the codec pluggable.
+    \item<5-> The configuration layer was extended accordingly: both the general subarray encoding scheme and the chosen lossy variant can now be selected through the Pallas config file and corresponding environment variables.
+    \item<6-> This makes future codec experimentation much easier, because new lossy predictors can be integrated behind the same \texttt{encode(...)} / \texttt{decode(...)} interface with limited disruption to the storage path.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Lossy Encoding: Accuracy vs Compression}
+  \small
+  \begin{itemize}
+    \item<1-> The current lossy predictors are based on a fixed set of percentile anchors, and the number of anchors can be varied to trade accuracy against compression ratio.
+    \item<2-> With fewer \texttt{kKPercentileAnchorCount} anchor values, the encoded representation becomes smaller, but the reconstructed signal is coarser.
+    \item<3-> With more anchors, the reconstructed timestamps or durations better follow the original shape, at the cost of storing more predictor state.
+    \item<4-> This is especially useful for highly repetitive polling traces, where approximate reconstruction can remove substantial redundancy while preserving the overall temporal behavior.
+    \item<5-> The benchmark and verification work added alongside these codecs gives us a way to measure that tradeoff through write cost, read cost, compression ratio, and error metrics.
+    \item<6-> Future work over the coming weeks will focus on stronger variants of the current \texttt{QLinear} predictor; because the implementation is modular, these new predictors can be slotted into the existing framework with relatively little effort.
+  \end{itemize}
+\end{frame}
+
+
 
 \end{document}
