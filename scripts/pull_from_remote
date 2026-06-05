@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: pull_from_remote <remote_host> <local_destination_dir>
+
+Pull only folders matching:
+  test-pallas/**/run-analysis-*
+
+from:
+  <remote_host>:~/inria/
+
+into:
+  <local_destination_dir>
+
+Examples:
+  pull_from_remote yash@sandor ~/inria/backups
+  pull_from_remote yash@stark  ~/inria/remote-results
+
+Notes:
+  - This script does not use --delete, so local folders that do not exist on
+    the remote machine are preserved.
+  - The directory hierarchy under ~/inria is preserved below the destination.
+EOF
+}
+
+if [[ $# -ne 2 ]]; then
+    usage
+    exit 1
+fi
+
+REMOTE_HOST="$1"
+LOCAL_DEST_DIR="$2"
+REMOTE_BASE="~/inria/"
+
+mkdir -p "$LOCAL_DEST_DIR"
+
+rsync -avz --progress \
+    --prune-empty-dirs \
+    --include='test-pallas/' \
+    --include='test-pallas/run-analysis-*/' \
+    --include='test-pallas/run-analysis-*/**' \
+    --include='test-pallas/**/' \
+    --include='test-pallas/**/run-analysis-*/' \
+    --include='test-pallas/**/run-analysis-*/**' \
+    --exclude='*' \
+    "${REMOTE_HOST}:${REMOTE_BASE}" \
+    "${LOCAL_DEST_DIR%/}/"
