@@ -7,6 +7,8 @@ source "${SCRIPT_DIR}/_inria-layout.sh"
 export PALLAS_SRC="$INRIA_ROOT/pallas"
 export PALLAS_BUILD="$PALLAS_SRC/build-pallas"
 export PALLAS_ROOT="$PALLAS_SRC/install-pallas"
+export BLUP_CONFIG="$INRIA_ROOT/blup-config"
+export BLUP_VENV="$BLUP_CONFIG/venv"
 
 JOBS="${JOBS:-$(nproc)}"
 CMAKE_ARGS=("$@")
@@ -43,6 +45,15 @@ cmake --build "$PALLAS_BUILD" -j"$JOBS"
 
 echo "[rebuild-pallas] Installing Pallas..."
 cmake --install "$PALLAS_BUILD"
+
+if [ -d "$BLUP_VENV" ]; then
+    echo "[rebuild-pallas] Installing pallas_python into Blup venv..."
+    source "$BLUP_VENV/bin/activate"
+    python -m pip install -e "$PALLAS_SRC"
+    echo "[rebuild-pallas] Blup venv python=$(command -v python || true)"
+else
+    echo "[rebuild-pallas] Blup venv not found at $BLUP_VENV; skipping Python package install."
+fi
 
 echo "[rebuild-pallas] Activating Pallas environment..."
 source "$INRIA_SCRIPTS_DIR/env-pallas.sh"

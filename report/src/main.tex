@@ -70,9 +70,7 @@ for iter = 1 .. iterations:
       \hline
       10000 & 10000 & \textit{91} \\
       \hline
-      1000 & 50000 & \textit{fill} \\
-      \hline
-      10000 & 50000 & \textit{fill} \\
+      1000 & 50000 & \textit{47} \\
       \hline
     \end{tabular}
   \end{block}
@@ -245,7 +243,7 @@ for iter = 1 .. iterations:
   \end{tabular}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.53\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260605-102501/overall_compression.png}
+  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260605-102501/overall_compression.png}
 
   \vspace{0.2em}
   \begin{itemize}
@@ -272,7 +270,7 @@ for iter = 1 .. iterations:
   \end{tabular}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.53\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260603-162313/overall_compression.png}
+  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260603-162313/overall_compression.png}
 
   \vspace{0.2em}
   \begin{itemize}
@@ -299,7 +297,7 @@ for iter = 1 .. iterations:
   \end{tabular}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{../images/chameleon_stesting/run-analysis-20260604-125221/overall_compression.png}
+  \includegraphics[width=\textwidth,height=0.64\textheight,keepaspectratio]{../images/chameleon_stesting/run-analysis-20260604-125221/overall_compression.png}
 
   \vspace{0.2em}
   \texttt{mpirun -np 16 --bind-to l3cache ./chameleon\_stesting -o potrf -H --niter 1 -w -P 4 -n 65536}
@@ -341,7 +339,7 @@ for iter = 1 .. iterations:
   \texttt{All values above are normalized as ns/value.}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260605-102501/overall_write.png}
+  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260605-102501/overall_write.png}
 
   \vspace{0.2em}
   \begin{itemize}
@@ -371,7 +369,7 @@ for iter = 1 .. iterations:
   \texttt{All values above are normalized as ns/value.}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260603-162313/overall_write.png}
+  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260603-162313/overall_write.png}
 
   \vspace{0.2em}
   \begin{itemize}
@@ -401,7 +399,7 @@ for iter = 1 .. iterations:
   \texttt{All values above are normalized as ns/value.}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.47\textheight,keepaspectratio]{../images/chameleon_stesting/run-analysis-20260604-125221/overall_write.png}
+  \includegraphics[width=\textwidth,height=0.64\textheight,keepaspectratio]{../images/chameleon_stesting/run-analysis-20260604-125221/overall_write.png}
 
   \vspace{0.2em}
   \texttt{mpirun -np 16 --bind-to l3cache ./chameleon\_stesting -o potrf -H --niter 1 -w -P 4 -n 65536}
@@ -444,7 +442,7 @@ for iter = 1 .. iterations:
   \texttt{Load-side values are normalized as ns/unit; replay is shown separately as replay ns/unit.}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260605-102501/overall_read.png}
+  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260605-102501/overall_read.png}
 
   \vspace{0.2em}
   \begin{itemize}
@@ -474,7 +472,7 @@ for iter = 1 .. iterations:
   \texttt{Load-side values are normalized as ns/unit; replay is shown separately as replay ns/unit.}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260603-162313/overall_read.png}
+  \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../images/spinloop/run-analysis-20260603-162313/overall_read.png}
 
   \vspace{0.2em}
   \begin{itemize}
@@ -504,7 +502,7 @@ for iter = 1 .. iterations:
   \texttt{This Chameleon campaign used load-only mode, so replay cost is zero by construction.}
 
   \vspace{0.3em}
-  \includegraphics[width=\textwidth,height=0.47\textheight,keepaspectratio]{../images/chameleon_stesting/run-analysis-20260604-125221/overall_read.png}
+  \includegraphics[width=\textwidth,height=0.64\textheight,keepaspectratio]{../images/chameleon_stesting/run-analysis-20260604-125221/overall_read.png}
 
   \vspace{0.2em}
   \texttt{mpirun -np 16 --bind-to l3cache ./chameleon\_stesting -o potrf -H --niter 1 -w -P 4 -n 65536}

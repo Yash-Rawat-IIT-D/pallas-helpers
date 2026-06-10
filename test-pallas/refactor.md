@@ -1,718 +1,299 @@
-# Linked Vector Refactor Notes
-
-This note describes the current structure around:
-
-- `pallas_linked_vector.h`
-- `pallas_linked_vector.cpp`
-- the way storage/read/write code calls into them from `pallas_storage.cpp`
-
-The goal is to make future refactors easier by clarifying:
-
-- which types own what
-- which layers call which functions
-- where codec policy is chosen
-- where storage metadata lives
-- where current coupling points exist
-
-Assumption: this reflects the current `bmark-*` branch state.
-
-## 1. High-Level Dependency Tree
-
-```text
-ParameterHandler
-├── default timestamp subarray encoding
-├── default duration subarray encoding
-├── MonotoneLossyVariant
-├── DurationLossyVariant
-└── memory + benchmark/storage counters context
-
-SubArrayEncoding
-├── None
-├── Delta2VintTimestamp
-├── Delta2VintDuration
-├── MonotoneLossy
-└── DurationLossy
-
-SubArrayCodec interface
-├── NoneCodec
-├── Delta2VintCodecBase
-│   ├── TimestampDelta2VintCodec
-│   └── DurationDelta2VintCodec
-├── MonotoneLossyCodec
-└── DurationLossyCodec
-
-LinkedVector
-├── owns linked list of LinkedVector::SubArray
-├── used for event timestamps / sequence timestamps
-├── writes metadata to info file
-├── writes encoded payload to data file
-└── lazy-loads payload through load_data()
-
-LinkedDurationVector
-├── owns linked list of LinkedDurationVector::SubArray
-├── tracks min/max/mean at vector and subarray level
-├── used for sequence durations / exclusive durations
-├── writes metadata to info file
-├── writes encoded payload to data file
-└── lazy-loads payload through load_data()
-
-pallas_storage.cpp
-├── calls LinkedVector::write_to_file()
-├── calls LinkedDurationVector::write_to_file()
-├── constructs vectors back from metadata files
-├── calls LinkedVector::load_data()
-├── calls LinkedDurationVector::load_data()
-└── in BMARK mode verifies encode/decode correctness
-
-pallas_write.cpp
-└── influences which SubArrayEncoding gets assigned during trace construction
-```
-
-## 2. Main Types in `pallas_linked_vector.h`
-
-### 2.1 `SubArrayEncoding`
-
-This is the central enum for payload encoding policy.
-
-```text
-SubArrayEncoding
-├── None
-├── Delta2VintTimestamp
-├── Delta2VintDuration
-├── MonotoneLossy
-└── DurationLossy
-```
-
-It is stored:
-
-- as the preferred encoding on a whole vector
-- on each concrete subarray as `sub_arr_encoding`
-- in the serialized metadata for each stored subarray
-
-So this enum is both:
-
-- a policy choice during write time
-- part of the persisted trace format
-
-### 2.2 `SubArrayCodec`
-
-`SubArrayCodec` is the common interface all subarray encoders implement.
-
-Current shape:
-
-```text
-SubArrayCodec
-├── encoding()
-├── can_encode(array, size)
-├── encode(file, array, size, encoded_array, caller_sub_array, caller_kind, parameter_handler)
-└── decode(encoded_array, enc_size, decoded_array, size, caller_sub_array, caller_kind, parameter_handler)
-```
-
-Important current detail:
-
-- `encode()` and `decode()` both receive:
-  - `void* caller_sub_array`
-  - `int caller_kind`
-- `caller_kind == 0` means `LinkedVector::SubArray`
-- `caller_kind == 1` means `LinkedDurationVector::SubArray`
-
-This is a lightweight callback context mechanism so codecs can use caller metadata without a larger structural redesign.
-
-### 2.3 Concrete codec tree
-
-```text
-SubArrayCodec
-├── NoneCodec
-│   ├── encode: passthrough
-│   └── decode: passthrough
-├── Delta2VintCodecBase
-│   ├── varint helpers
-│   ├── timestamp delta helpers
-│   └── duration delta helpers
-├── TimestampDelta2VintCodec
-│   └── wraps Delta2VintCodecBase for monotone timestamps
-├── DurationDelta2VintCodec
-│   └── wraps Delta2VintCodecBase for signed duration deltas
-├── MonotoneLossyCodec
-│   └── current implemented variant: QLinear
-└── DurationLossyCodec
-    ├── current implemented variant: QLinear
-    └── current stub: QLinearMeanRep
-```
-
-### 2.4 `LinkedVector`
-
-`LinkedVector` is the linked-list-backed storage type for timestamp-like vectors.
-
-Key responsibilities:
-
-- append values incrementally
-- split into fixed-capacity subarrays
-- remember preferred encoding for new subarrays
-- serialize subarray metadata and payload
-- lazy-load payload on demand
-
-Current data shape:
-
-```text
-LinkedVector
-├── size
-├── ref
-├── n_sub_array
-├── is_contiguous
-├── filePath
-├── parameter_handler
-├── preferred_sub_arr_encoding
-├── loaded_subarrays
-├── first
-└── last
-```
-
-### 2.5 `LinkedVector::SubArray`
-
-This is the actual payload node for `LinkedVector`.
-
-```text
-LinkedVector::SubArray
-├── size
-├── allocated
-├── sub_arr_encoding
-├── enc_size
-├── array
-├── next / previous
-├── starting_index
-├── first_value
-├── last_value
-└── offset
-```
-
-Key meaning:
-
-- `sub_arr_encoding`: encoding selected for this subarray payload
-- `enc_size`: encoded payload length in `uint64_t` words
-- `offset`: offset into the payload file
-- `first_value` / `last_value`: metadata shortcuts used by timestamp logic
-
-### 2.6 `LinkedDurationVector`
-
-`LinkedDurationVector` is parallel to `LinkedVector`, but duration-specific.
-
-Extra responsibilities:
-
-- maintain duration statistics
-- expose approximate aggregated operations such as `weightedSum()`
-
-Current data shape:
-
-```text
-LinkedDurationVector
-├── size
-├── ref
-├── n_sub_array
-├── is_contiguous
-├── filePath
-├── parameter_handler
-├── preferred_sub_arr_encoding
-├── loaded_subarrays
-├── first
-├── last
-├── min
-├── max
-└── mean
-```
-
-### 2.7 `LinkedDurationVector::SubArray`
-
-This is the duration payload node.
-
-```text
-LinkedDurationVector::SubArray
-├── size
-├── allocated
-├── sub_arr_encoding
-├── enc_size
-├── array
-├── next / previous
-├── starting_index
-├── offset
-├── min
-├── max
-└── mean
-```
-
-Difference vs timestamp subarray:
-
-- there is no `first_value` / `last_value`
-- instead we persist `min` / `max` / `mean`
-
-These statistics are especially important now because `DurationLossyCodec::decode_qlinear()` reconstructs values using:
-
-- `encoded interior quantiles`
-- `subarray min`
-- `subarray max`
-
-### 2.8 Current codec-access helper methods
-
-Because nested `SubArray` types remain private, the code currently exposes small helper accessors:
-
-```text
-LinkedVector
-└── codec_subarray_starting_index(void*)
-
-LinkedDurationVector
-├── codec_subarray_starting_index(void*)
-├── codec_subarray_min(void*)
-└── codec_subarray_max(void*)
-```
-
-This is the current compromise between:
-
-- wanting codec access to subarray metadata
-- not yet doing a bigger shared-base-class refactor
-
-## 3. Construction and Append-Time Flow
-
-### 3.1 Vector construction
-
-```text
-LinkedVector(ParameterHandler&)
-└── preferred_sub_arr_encoding = parameter_handler.getTimestampSubArrayEncoding()
-
-LinkedDurationVector(ParameterHandler&)
-└── preferred_sub_arr_encoding = parameter_handler.getDurationSubArrayEncoding()
-```
-
-Both constructors create an initial `SubArray(DEFAULT_VECTOR_SIZE)`.
-
-### 3.2 Append path
-
-For timestamps:
-
-```text
-LinkedVector::add(val)
-├── if last subarray full:
-│   ├── allocate new SubArray
-│   ├── copy preferred_sub_arr_encoding into new subarray
-│   └── increment n_sub_array
-└── delegate to LinkedVector::SubArray::add(val)
-```
-
-For durations:
-
-```text
-LinkedDurationVector::add(val)
-├── if last subarray full:
-│   ├── finalize old subarray mean
-│   ├── allocate new SubArray
-│   ├── copy preferred_sub_arr_encoding into new subarray
-│   └── increment n_sub_array
-├── delegate to LinkedDurationVector::SubArray::add(val)
-└── update vector-level min/max/mean accumulator
-```
-
-## 4. Write-Time Flow
-
-### 4.1 Big-picture write chain
-
-```text
-storeEvent() / storeSequence() in pallas_storage.cpp
-└── vector->write_to_file(infoFile, dataFile, parameter_handler, storage_counters)
-    └── each loaded subarray:
-        └── subarray->write_to_file(dataFile, parameter_handler, storage_counters)
-            ├── choose codec from sub_arr_encoding
-            ├── fallback to None if can_encode() == false
-            ├── codec->encode(...)
-            ├── _pallas_compress_write(...)
-            ├── in BMARK: verify by decode + compare
-            └── free in-memory array
-```
+# LinkedVector V1 Refactor Plan
 
-### 4.2 `LinkedVector::write_to_file()`
+## Context
 
-Writes:
+This document captures the planned V1 refactor of:
 
-- vector-level metadata to the info file
-- then each subarray metadata
+- `pallas/libraries/pallas/include/pallas/utils/pallas_linked_vector.h`
+- `pallas/libraries/pallas/src/pallas_linked_vector.cpp`
 
-For each subarray metadata entry:
+The goal is not a cosmetic cleanup. The main objective is to change the storage model so that encoded / predicted representations can influence the in-memory representation earlier, instead of only being applied during the final storage step.
 
-```text
-[size, sub_arr_encoding, enc_size, first_value, last_value, offset]
-```
+## Current Problem
 
-### 4.3 `LinkedDurationVector::write_to_file()`
+Today, `SubArrayCodec` is mostly applied at storage time:
 
-Writes:
+1. the vector accumulates raw values in memory
+2. the subarray keeps the full `NoneCodec`-style payload in RAM
+3. only when writing to file do we call the codec and reduce the representation
 
-- vector-level metadata
-- vector-level `min/max/mean`
-- then each subarray metadata
+This means:
 
-For each duration subarray metadata entry:
+- runtime memory usage still resembles the `NoneCodec` case
+- trend-aware encodings only help at the very end
+- predictors and codecs are too tightly coupled to storage-time behavior
 
-```text
-[size, sub_arr_encoding, enc_size, min, max, mean, offset]
-```
+For timestamps this is partially acceptable because monotone order gives structure “for free”.
+For durations this is much weaker, because the values are not naturally ordered in the same way.
 
-### 4.4 Codec selection at subarray write time
+## High-Level Refactor Direction
 
-The critical dispatch point is:
+The V1 direction is:
 
-```text
-sub_arr_encoding
-  -> get_subarray_codec(sub_arr_encoding)
-  -> codec->can_encode(array, size)
-      -> if false:
-         sub_arr_encoding = None
-         codec = get_subarray_codec(None)
-```
+- introduce a common base class for linked-vector behavior
+- split timestamp and duration implementations more explicitly
+- separate **prediction/trend detection** from **codec serialization**
+- allow a vector/subarray to move between:
+  - a raw / `None` accumulation state
+  - a codec / predicted state
 
-This means the persisted `sub_arr_encoding` may be downgraded at write time.
+The long-term idea is that once a pattern is detected, the in-memory representation itself can become smaller and more structured, rather than waiting until file output.
 
-Example:
+## Main Refactor Themes
 
-- `DurationLossy` currently only accepts `size >= 11`
-- smaller subarrays automatically fall back to `None`
+### 1. Common base classes
 
-### 4.5 Current write-time caller context
+Introduce:
 
-Write-time encode calls pass:
+- a common base class for the vector
+- a common base class for the subarray
 
-```text
-LinkedVector::SubArray::write_to_file()
-└── codec->encode(..., this, 0, parameter_handler)
+And derive concrete specializations:
 
-LinkedDurationVector::SubArray::write_to_file()
-└── codec->encode(..., this, 1, parameter_handler)
-```
+- `LinkedVectorTimeStamp`
+- `LinkedVectorDuration`
+- `SubArrayTimeStamp`
+- `SubArrayDuration`
 
-So codecs can tell:
+Expected benefit:
 
-- which vector family called them
-- which specific subarray is involved
+- shared behavior can move to a base layer
+- timestamp-specific and duration-specific logic can stop leaking into each other
+- future codecs/predictors can target the correct domain more cleanly
 
-## 5. Read-Time Flow
+### 2. Explicit domain tagging
 
-### 5.1 Big-picture lazy-load chain
+Introduce an explicit enum or tag to represent the semantic domain:
 
-```text
-readEvent() / readSequence() in pallas_storage.cpp
-└── construct LinkedVector / LinkedDurationVector from metadata only
-    └── no payload loaded yet
+- `Timestamp`
+- `Duration`
 
-later...
-operator[](pos) / at(pos) / load_all_data()
-└── load_data(sub)
-    ├── seek to payload offset
-    ├── _pallas_compress_read(...)
-    ├── get_subarray_codec(sub->sub_arr_encoding)
-    ├── codec->decode(..., sub, caller_kind, &parameter_handler)
-    └── register loaded subarray in LRU queue
-```
+The current expectation is:
 
-### 5.2 Metadata-only reconstruction
+- the tag does not necessarily need to be stored as owned mutable state inside every vector or subarray
+- but it should be easy to pass through the relevant layers
 
-`LinkedVector(FILE*, ...)` reconstructs only:
+Expected benefit:
 
-- vector size
-- number of subarrays
-- preferred encoding
-- subarray metadata
+- codec and predictor code can switch on a clean semantic notion instead of relying on ad hoc type assumptions
+- duration-vs-timestamp behavior becomes explicit and easier to extend
 
-`LinkedDurationVector(FILE*, ...)` additionally reconstructs:
+### 3. Predictor and codec separation
 
-- vector min/max/mean
-- subarray min/max/mean
+The codec should not be responsible for deciding whether a trend exists.
 
-At this stage `array == nullptr` for lazy subarrays.
+Instead:
 
-### 5.3 Read-side codec dispatch
+- a **Predictor** decides whether incoming values follow a useful pattern
+- the **Codec** is responsible only for representing / serializing the chosen state
 
-Timestamp-like:
+Expected benefit:
 
-```text
-codec->decode(encoded_array, enc_size, sub->array, sub->size, sub, 0, &parameter_handler)
-```
+- cleaner responsibilities
+- easier experimentation with multiple predictors on top of the same codec
+- easier implementation of duration-specific logic, where ordering assumptions are weaker
 
-Duration-like:
+### 4. Stateful subarray representation
 
-```text
-codec->decode(encoded_array, enc_size, sub->array, sub->size, sub, 1, &parameter_handler)
-```
+Each vector/subarray should conceptually support at least two states:
 
-This is especially important for `DurationLossy`, whose decode now depends on duration subarray metadata.
+- `NoneState`
+  - raw values are accumulated directly
+- `CodecState`
+  - only the reduced predictor/codec representation is maintained
 
-## 6. Codec-Specific Notes
+Transition idea:
 
-### 6.1 `NoneCodec`
+1. subarray starts in `NoneState`
+2. enough values are observed
+3. predictor detects a stable trend
+4. subarray transitions to `CodecState`
+5. if the trend breaks badly enough, either:
+   - fall back to `NoneState`, or
+   - terminate the current subarray and start a new one
 
-Behavior:
+This part is still design-heavy and should be resolved incrementally.
 
-- no transform
-- encoded array is the original array
-- decoded array is the encoded array
+## Proposed Implementation Plan
 
-Coupling consequence:
+### Phase 0. Stabilize terminology and invariants
 
-- caller must be careful not to double free
+Before code movement:
 
-### 6.2 `TimestampDelta2VintCodec`
+- define the exact meaning of:
+  - vector
+  - subarray
+  - codec
+  - predictor
+  - `NoneState`
+  - `CodecState`
+- define what must remain true for:
+  - append
+  - load
+  - storage
+  - decode
+  - statistics (`min`, `max`, `mean`, etc.)
 
-Assumption:
+Deliverable:
 
-- values are monotone timestamps
+- a small design note or comments documenting the state model and naming
 
-Shape:
+### Phase 1. Introduce domain tags
 
-- base timestamp
-- first delta
-- delta-of-delta varints after that
+Add the semantic domain tag first, before large hierarchy changes.
 
-### 6.3 `DurationDelta2VintCodec`
+Tasks:
 
-Assumption:
+- define the timestamp/duration tag enum
+- thread that tag through the places where codec or predictor behavior will need it
+- avoid large ownership refactors at this stage
 
-- durations are not monotone
-- adjacent deltas can be signed
+Why first:
 
-Shape:
+- this is the smallest change that unlocks clearer branching later
 
-- base duration
-- first signed delta
-- delta-of-delta varints
+### Phase 2. Split common and specialized responsibilities
 
-### 6.4 `MonotoneLossyCodec`
+Refactor the class structure into:
 
-Current implemented variant:
+- common base vector
+- timestamp vector specialization
+- duration vector specialization
+- common base subarray
+- timestamp subarray specialization
+- duration subarray specialization
 
-- `QLinear`
+Tasks:
 
-High-level idea:
+- identify methods that are truly common
+- move only stable/common behavior into the base
+- keep domain-specific storage and prediction behavior in derived classes
 
-- store 11 percentile anchors
-- reconstruct a monotone approximation by linear interpolation
+Important caution:
 
-Current coupling:
+- do not force everything into the base too early
+- if a method already diverges meaningfully for durations vs timestamps, keep it specialized
 
-- works directly on the array values
-- does not need caller subarray metadata
+### Phase 3. Separate predictor from codec
 
-### 6.5 `DurationLossyCodec`
+Introduce a predictor abstraction.
 
-Current implemented variant:
+Tasks:
 
-- `QLinear`
+- define predictor interface
+- decide the predictor lifecycle
+- define the handoff between predictor and codec state
 
-Current algorithm:
+Questions to resolve:
 
-```text
-encode
-├── require size >= 11
-├── sort the subarray values
-├── extract q10..q90
-└── store only those 9 values
+- does each subarray own one predictor?
+- does predictor state persist after switching to codec mode?
+- when a predictor fails, do we downgrade the same subarray or terminate it?
 
-decode
-├── require duration caller kind
-├── recover min/max from LinkedDurationVector::SubArray metadata
-├── rebuild 11-anchor quantile model:
-│   [min, q10, q20, ..., q90, max]
-├── reconstruct sorted values by inverse-CDF-style interpolation
-└── deterministically shuffle output using fixed seed + starting_index
-```
+Expected early result:
 
-Current important coupling:
+- current heuristic logic can migrate out of codec/storage code
 
-- depends on duration subarray metadata
-- depends on caller kind being `1`
-- depends on helper accessors on `LinkedDurationVector`
+### Phase 4. Implement `NoneState` / `CodecState`
 
-## 7. How `pallas_storage.cpp` Exposes the Linked Vectors
+This is the core behavioral refactor.
 
-### 7.1 Event path
+Tasks:
 
-```text
-Event
-└── event.timestamps : LinkedVector
-    ├── storeEvent() writes it
-    └── readEvent() reconstructs it lazily
-```
+- represent subarray state explicitly
+- decide which statistics remain available in both states
+- ensure append paths work in both states
+- ensure transitions are well-defined and testable
 
-### 7.2 Sequence path
+Key design choice:
 
-```text
-Sequence
-├── sequence.durations : LinkedDurationVector
-├── sequence.exclusive_durations : LinkedDurationVector
-└── sequence.timestamps : LinkedVector
-```
+- whether `CodecState` stores:
+  - only predictor parameters
+  - predictor parameters plus sparse checkpoints
+  - predictor parameters plus bounded reconstruction cache
 
-Write-time sequence order is currently:
+### Phase 5. Rework storage flow
 
-1. durations
-2. exclusive durations
-3. timestamps
+After the state model is working, revisit storage.
 
-Each of those can use a different `StorageErrorCounters` bucket in `BMARK` mode.
+Target:
 
-### 7.3 Benchmark-only coupling
+- storage should consume the state already maintained in memory
+- it should not need to reconstruct the whole idea of the trend only at write time
 
-On the benchmark branch, `StorageCounters` is threaded through `write_to_file()` so the storage layer can record:
+Tasks:
 
-- write time
-- compression sizes
-- verification timing
-- MSE/RMSE/NRMSE-like error metrics
+- minimize “late” storage-only encoding logic
+- keep file format concerns in codec/storage boundary code
+- avoid reintroducing duplication between runtime state and serialized state
 
-That means this branch currently couples:
+### Phase 6. Revisit duration-specific predictors/codecs
 
-- vector write path
-- codec decode path
-- verification reporting
+Once the new structure exists, revisit duration handling specifically.
 
-more tightly than the clean functional branch does.
+Rationale:
 
-## 8. Current Memory/Lifetime Model
+- timestamps benefit from natural monotone ordering
+- durations do not
+- therefore duration predictors probably need a different philosophy
 
-### 8.1 In-memory append mode
+Likely future directions:
 
-- a vector owns one or more live subarrays
-- each subarray owns `array`
-- once serialized, the subarray frees `array`
+- distribution-aware predictors
+- local-window models
+- bounded-error stochastic reconstruction
+- hybrid representations that preserve coarse statistics plus limited structure
 
-### 8.2 Lazy-read mode
+## Open Design Questions
 
-- metadata exists even when `array == nullptr`
-- `load_data()` reconstructs `array` on demand
-- loaded subarrays are tracked in `loaded_subarrays`
-- an LRU-like queue in `ParameterHandler::subvector_queue` is used for eviction when memory is high
+These should be answered during implementation rather than left implicit:
 
-### 8.3 Destruction model
+1. When switching to `CodecState`, do we compress the already accumulated raw values immediately?
+2. If a trend breaks, do we:
+   - revert the same subarray to raw mode, or
+   - close the subarray and open a new one?
+3. Which statistics must always be stored, regardless of state?
+4. Does the predictor operate:
+   - per value
+   - per window
+   - per subarray
+5. How much reconstruction fidelity is needed while the program is still running, before final file write?
+6. Which parts of the current `SubArrayCodec` API remain valid once prediction is moved earlier?
 
-Two cases:
+## Practical Order of Work
 
-- non-contiguous allocation: linked subarrays individually deleted
-- contiguous metadata allocation on read path: placement-new over a `calloc` block and later `free(first)`
+Recommended order:
 
-This is an important refactor hazard area.
+1. add domain tag
+2. split common vs specialized classes
+3. extract predictor concept
+4. implement explicit state model
+5. rewire storage path around the new model
+6. revisit duration-specific modeling
 
-## 9. Current Refactor Pressure Points
+This ordering keeps the risky “behavioral” changes after the structural groundwork is laid.
 
-These are the places that look most coupled today.
+## Risks
 
-### 9.1 Private nested `SubArray` types plus codec metadata needs
+Main risks of the refactor:
 
-Current workaround:
+- over-generalizing the base class too early
+- making duration and timestamp paths look more similar than they really are
+- breaking lazy loading / storage compatibility while moving state earlier
+- accidentally increasing complexity without reducing memory usage
 
-- `void* caller_sub_array`
-- `caller_kind`
-- helper accessors like `codec_subarray_min()`
+Mitigation:
 
-Possible future refactor direction:
+- keep each phase small and testable
+- preserve compatibility as long as possible
+- measure memory/state impact after each major phase
 
-- shared codec-visible metadata struct
-- common base for subarray metadata
-- or codec traits per vector family
+## Success Criteria
 
-### 9.2 `LinkedVector` and `LinkedDurationVector` duplicate a lot of logic
+The refactor should be considered successful if:
 
-Shared behavior today:
-
-- linked-subarray ownership
-- append/split logic
-- lazy loading
-- serialization traversal
-- preferred encoding handling
-
-Differences:
-
-- timestamp vs duration metadata
-- statistics maintenance
-- certain query helpers
-- different codec assumptions
-
-This suggests a future base/shared internal layer may eventually make sense, but it is currently not there.
-
-### 9.3 Storage concerns are mixed with encoding concerns
-
-Current write path does all of these in one route:
-
-- choose codec
-- encode
-- compress
-- benchmark verify
-- persist metadata
-- free memory
-
-This makes isolated codec testing harder than it could be.
-
-### 9.4 Persisted metadata format is codec-sensitive
-
-Examples:
-
-- `LinkedVector::SubArray` persists `first_value` / `last_value`
-- `LinkedDurationVector::SubArray` persists `min` / `max` / `mean`
-- `DurationLossy` decode now depends on duration metadata being present and valid
-
-So changing codec design may require revisiting serialized metadata, not just codec code.
-
-## 10. Practical “Who Calls What?” Cheat Sheet
-
-```text
-ThreadWriter / write logic
-└── builds Event / Sequence contents
-
-pallas_storage.cpp
-├── storeEvent()
-│   └── event.timestamps->write_to_file(...)
-├── storeSequence()
-│   ├── sequence.durations->write_to_file(...)
-│   ├── sequence.exclusive_durations->write_to_file(...)
-│   └── sequence.timestamps->write_to_file(...)
-├── readEvent()
-│   └── new LinkedVector(FILE*, ...)
-└── readSequence()
-    ├── new LinkedDurationVector(FILE*, ...)
-    ├── new LinkedDurationVector(FILE*, ...)
-    └── new LinkedVector(FILE*, ...)
-
-LinkedVector / LinkedDurationVector
-├── write_to_file(...)
-│   └── SubArray::write_to_file(...)
-│       ├── get_subarray_codec(...)
-│       ├── codec->can_encode(...)
-│       ├── codec->encode(...)
-│       ├── _pallas_compress_write(...)
-│       └── in BMARK: pallasVerifyEncodedSubArray(...)
-└── load_data(sub)
-    ├── _pallas_compress_read(...)
-    ├── get_subarray_codec(...)
-    └── codec->decode(...)
-```
-
-## 11. Suggested Future Refactor Questions
-
-When revisiting this area later, these are probably the most useful questions to ask first:
-
-1. Do we want a shared internal base for `LinkedVector` and `LinkedDurationVector`, or do we prefer two explicit parallel types?
-2. Should codec-visible metadata become a real typed object instead of `void* + caller_kind`?
-3. Should encode/decode logic be separated more clearly from file I/O and compression?
-4. Which subarray metadata is truly part of the on-disk format contract, and which is just a convenience cache?
-5. Should lossy codecs be allowed to depend on subarray metadata outside the encoded payload, or should decode be self-contained?
-
-## 12. Short Summary
-
-Today the system is organized around:
-
-- two linked-vector containers
-- one per-subarray encoding enum
-- one codec interface with lightweight caller context
-- storage code that owns persistence and lazy reload
-
-The most important current coupling is:
-
-- `pallas_storage.cpp` owns persistence policy
-- `pallas_linked_vector.*` owns container and codec mechanics
-- lossy codecs, especially `DurationLossy`, now depend on subarray metadata and caller context
-
-That is the main architectural pressure point to keep in mind for future work.
+- timestamp and duration paths are structurally clearer
+- predictors and codecs are decoupled
+- subarray state transitions are explicit
+- runtime memory usage can become meaningfully smaller than the current raw-only accumulation model
+- duration handling no longer depends on assumptions that only really fit monotone timestamp data
