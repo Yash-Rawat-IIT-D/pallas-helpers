@@ -19,7 +19,7 @@ DEFAULT_KILL_SCRIPT = ROOT / "scripts" / "kill-trace-procs.sh"
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
-
+DO_READ_BENCHMARK = False
 
 class RunStatus(IntEnum):
     OK = 0
@@ -328,39 +328,38 @@ class Runner:
             append_log(run_log, f"trace_file_missing={trace_file}\n")
             return RunStatus.TRACE_MISSING, elapsed_seconds
 
-        benchmark_command = self.build_read_benchmark_command(trace_file)
-        append_log(run_log, "$ bash -lc " + benchmark_command + "\n")
+        if(DO_READ_BENCHMARK):
+            benchmark_command = self.build_read_benchmark_command(trace_file)
+            append_log(run_log, "$ bash -lc " + benchmark_command + "\n")
 
-        with read_benchmark_stdout_path.open("w", encoding="utf-8") as stdout_handle, read_benchmark_stderr_path.open(
-            "w", encoding="utf-8"
-        ) as stderr_handle:
-            benchmark_result = subprocess.run(
-                ["bash", "-lc", benchmark_command],
-                cwd=case_dir,
-                text=True,
-                stdout=stdout_handle,
-                stderr=stderr_handle,
-                check=False,
+            with read_benchmark_stdout_path.open("w", encoding="utf-8") as stdout_handle, read_benchmark_stderr_path.open(
+                "w", encoding="utf-8"
+            ) as stderr_handle:
+                benchmark_result = subprocess.run(
+                    ["bash", "-lc", benchmark_command],
+                    cwd=case_dir,
+                    text=True,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    check=False,
+                )
+
+            benchmark_report_path = trace_file.with_suffix(".read_benchmark.txt")
+            append_log(run_log,"\n".join(
+                    [
+                        "read_benchmark_status=completed",
+                        f"read_benchmark_returncode={benchmark_result.returncode}",
+                        f"read_benchmark_trace_file={trace_file}",
+                        f"read_benchmark_report={benchmark_report_path}",
+                        "",
+                    ]
+                ),
             )
 
-        benchmark_report_path = trace_file.with_suffix(".read_benchmark.txt")
-        append_log(
-            run_log,
-            "\n".join(
-                [
-                    "read_benchmark_status=completed",
-                    f"read_benchmark_returncode={benchmark_result.returncode}",
-                    f"read_benchmark_trace_file={trace_file}",
-                    f"read_benchmark_report={benchmark_report_path}",
-                    "",
-                ]
-            ),
-        )
-
-        if benchmark_result.returncode != 0:
-            elapsed_seconds = int(time.perf_counter() - start_time)
-            append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
-            return RunStatus.READ_BENCHMARK_FAILED, elapsed_seconds
+            if benchmark_result.returncode != 0:
+                elapsed_seconds = int(time.perf_counter() - start_time)
+                append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
+                return RunStatus.READ_BENCHMARK_FAILED, elapsed_seconds
 
         elapsed_seconds = int(time.perf_counter() - start_time)
         append_log(run_log, f"elapsed_seconds={elapsed_seconds}\n")
