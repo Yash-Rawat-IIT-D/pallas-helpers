@@ -7,7 +7,11 @@ import os
 import sys
 from pathlib import Path
 
-from pla import compute_block_max_abs_error, create_pla_algorithm
+from pla import (
+    compute_block_max_abs_error,
+    create_pla_algorithm,
+    materialize_segment_predictions,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PALLAS_LIB_CANDIDATES = (
@@ -245,12 +249,18 @@ def build_block_payload(timestamps, start, end):
 def compute_block_pla_segments(timestamps, block_size, pla_algorithm):
     block_segment_xs = []
     block_segment_ys = []
+    block_prediction_values = []
     block_segments = []
+    block_diagnostics = []
     for block_start in range(0, timestamps.size, block_size):
         block_end = min(timestamps.size, block_start + block_size)
         block_indices = list(range(block_start, block_end))
         block_values = timestamps[block_start:block_end].tolist()
         segments = pla_algorithm.fit(block_indices, block_values)
+        block_diagnostics.append(pla_algorithm.get_last_fit_diagnostics())
+        block_prediction_values.append(
+            materialize_segment_predictions(block_indices, segments)
+        )
         block_segments.append(segments)
         block_segment_xs.append(
             [[segment.start_index, segment.end_index] for segment in segments]
@@ -258,7 +268,7 @@ def compute_block_pla_segments(timestamps, block_size, pla_algorithm):
         block_segment_ys.append(
             [[segment.start_value, segment.end_value] for segment in segments]
         )
-    return block_segments, block_segment_xs, block_segment_ys
+    return block_segments, block_segment_xs, block_segment_ys, block_prediction_values, block_diagnostics
 
 
 def compute_top_block_errors(timestamps, block_size, block_segments, limit=10):
@@ -297,6 +307,52 @@ def build_info_html(trace_file, archive_id, thread_id, sequence_id, block_size, 
     )
 
 
+def print_pla_diagnostics(block_index, diagnostics):
+    if not diagnostics:
+        return
+
+    print(f"Diagnostics for block {block_index}:")
+    seed_indices = diagnostics.get("seed_indices", [])
+    final_anchor_indices = diagnostics.get("final_anchor_indices", [])
+    state_counts = diagnostics.get("state_counts", {})
+    refinement_history = diagnostics.get("refinement_history", [])
+    final_segment_scores = diagnostics.get("final_segment_scores", [])
+
+    print(f"  seeds={seed_indices}")
+    print(f"  final_anchors={final_anchor_indices}")
+    if state_counts:
+        print(
+            "  state_counts="
+            f"null:{state_counts.get('null', 0)} "
+            f"free:{state_counts.get('free', 0)} "
+            f"suppressed:{state_counts.get('suppressed', 0)} "
+            f"anchor:{state_counts.get('anchor', 0)}"
+        )
+    print(f"  accepted_refinements={len(refinement_history)}")
+
+    if refinement_history:
+        print("  recent_refinements:")
+        for entry in refinement_history[-5:]:
+            print(
+                "    "
+                f"segment=[{entry['segment_start']}, {entry['segment_end']}] "
+                f"split={entry['split_index']} "
+                f"parent={entry['parent_score']:.6f} "
+                f"left={entry['left_score']:.6f} "
+                f"right={entry['right_score']:.6f} "
+                f"gain={entry['gain']:.6f}"
+            )
+
+    if final_segment_scores:
+        print("  final_segment_scores:")
+        for entry in final_segment_scores[:8]:
+            print(
+                "    "
+                f"segment=[{entry['segment_start']}, {entry['segment_end']}] "
+                f"normalized_badness={entry['normalized_badness']:.6f}"
+            )
+
+
 def main():
     args = parse_args()
     np = import_numpy()
@@ -313,7 +369,7 @@ def main():
     timestamps = vector_to_numpy(sequence.timestamps).astype(np.int64, copy=False)
     start, end, block_count = block_bounds(timestamps.size, args.block_size, args.block_index)
     initial_block = build_block_payload(timestamps, start, end)
-    block_segments, block_segment_xs, block_segment_ys = compute_block_pla_segments(
+    block_segments, block_segment_xs, block_segment_ys, block_prediction_values, block_diagnostics = compute_block_pla_segments(
         timestamps, args.block_size, pla_algorithm
     )
     top_block_errors = compute_top_block_errors(
@@ -335,11 +391,12 @@ def main():
         "timestamps": timestamps.tolist(),
         "pla_xs": block_segment_xs,
         "pla_ys": block_segment_ys,
+        "pla_predictions": block_prediction_values,
     })
 
     pla_source = ColumnDataSource({
-        "xs": block_segment_xs[args.block_index],
-        "ys": block_segment_ys[args.block_index],
+        "index": initial_block["indices"].tolist(),
+        "prediction": block_prediction_values[args.block_index],
     })
 
     timestamp_plot = figure(
@@ -350,9 +407,9 @@ def main():
         active_scroll="wheel_zoom",
     )
     timestamp_renderer = timestamp_plot.line("index", "timestamp", source=timestamp_source, line_width=2)
-    pla_renderer = timestamp_plot.multi_line(
-        xs="xs",
-        ys="ys",
+    pla_renderer = timestamp_plot.line(
+        "index",
+        "prediction",
         source=pla_source,
         line_width=3,
         line_color="darkorange",
@@ -497,6 +554,7 @@ def main():
 const timestamps = all_data.data.timestamps;
 const allPlaXs = all_data.data.pla_xs;
 const allPlaYs = all_data.data.pla_ys;
+const allPlaPredictions = all_data.data.pla_predictions;
 const blockIndex = slider.value;
 const start = blockIndex * block_size;
 const end = Math.min(timestamps.length, start + block_size);
@@ -514,8 +572,8 @@ ts_source.data = {
 ts_source.change.emit();
 
 pla_source.data = {
-    xs: allPlaXs[blockIndex],
-    ys: allPlaYs[blockIndex],
+    index: blockIndices,
+    prediction: allPlaPredictions[blockIndex],
 };
 pla_source.change.emit();
 
@@ -625,6 +683,7 @@ if (slider.value < slider.end) {
             f"max_abs_error={error_summary.max_abs_error:.3f} "
             f"logical_index={error_summary.logical_index}"
         )
+    print_pla_diagnostics(args.block_index, block_diagnostics[args.block_index])
 
     if args.show_bokeh:
         show(layout)
