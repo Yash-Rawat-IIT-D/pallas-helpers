@@ -493,6 +493,12 @@ class PostMortemGammaPLA(PLAAlgorithm):
             if stats.is_jarring_position(split_position):
                 self._apply_anchor_suppression(stats, candidate_states, split_position)
 
+        forced_fill_indices = self._fill_remaining_anchors(
+            stats,
+            candidate_states,
+            anchor_positions,
+            target_anchor_count,
+        )
         segments = build_segments_from_split_positions(indices, values, anchor_positions)
         final_segment_scores = [
             {
@@ -507,6 +513,7 @@ class PostMortemGammaPLA(PLAAlgorithm):
             "final_anchor_indices": [int(indices[position]) for position in anchor_positions],
             "state_counts": self._count_states(candidate_states),
             "refinement_history": refinement_history,
+            "forced_fill_indices": [int(indices[position]) for position in forced_fill_indices],
             "final_segment_scores": final_segment_scores,
         }
         return segments
@@ -762,6 +769,54 @@ class PostMortemGammaPLA(PLAAlgorithm):
             "suppressed": sum(1 for state in candidate_states if state == CandidateState.SUPPRESSED),
             "anchor": sum(1 for state in candidate_states if state == CandidateState.ANCHOR),
         }
+
+    def _fill_remaining_anchors(
+        self,
+        stats: GammaBlockStats,
+        candidate_states: list[CandidateState],
+        anchor_positions: list[int],
+        target_anchor_count: int,
+    ) -> list[int]:
+        if len(anchor_positions) >= target_anchor_count:
+            return []
+
+        forced_fill_positions: list[int] = []
+        for allowed_state in (CandidateState.FREE, CandidateState.SUPPRESSED):
+            candidates = sorted(
+                (
+                    position
+                    for position in range(1, len(candidate_states) - 1)
+                    if candidate_states[position] == allowed_state
+                ),
+                key=stats.candidate_spike_score,
+                reverse=True,
+            )
+            for position in candidates:
+                if len(anchor_positions) >= target_anchor_count:
+                    return forced_fill_positions
+                insort(anchor_positions, position)
+                candidate_states[position] = CandidateState.ANCHOR
+                forced_fill_positions.append(position)
+
+        if len(anchor_positions) >= target_anchor_count:
+            return forced_fill_positions
+
+        residual_positions = sorted(
+            (
+                position
+                for position in range(1, len(candidate_states) - 1)
+                if candidate_states[position] != CandidateState.ANCHOR
+            ),
+            key=stats.candidate_spike_score,
+            reverse=True,
+        )
+        for position in residual_positions:
+            if len(anchor_positions) >= target_anchor_count:
+                break
+            insort(anchor_positions, position)
+            candidate_states[position] = CandidateState.ANCHOR
+            forced_fill_positions.append(position)
+        return forced_fill_positions
 
 
 def create_pla_algorithm(name: str) -> PLAAlgorithm:

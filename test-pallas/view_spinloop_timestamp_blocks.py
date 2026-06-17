@@ -316,6 +316,7 @@ def print_pla_diagnostics(block_index, diagnostics):
     final_anchor_indices = diagnostics.get("final_anchor_indices", [])
     state_counts = diagnostics.get("state_counts", {})
     refinement_history = diagnostics.get("refinement_history", [])
+    forced_fill_indices = diagnostics.get("forced_fill_indices", [])
     final_segment_scores = diagnostics.get("final_segment_scores", [])
 
     print(f"  seeds={seed_indices}")
@@ -329,6 +330,9 @@ def print_pla_diagnostics(block_index, diagnostics):
             f"anchor:{state_counts.get('anchor', 0)}"
         )
     print(f"  accepted_refinements={len(refinement_history)}")
+    print(f"  forced_fill_count={len(forced_fill_indices)}")
+    if forced_fill_indices:
+        print(f"  forced_fill_indices={forced_fill_indices}")
 
     if refinement_history:
         print("  recent_refinements:")
