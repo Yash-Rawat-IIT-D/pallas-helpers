@@ -1,0 +1,91 @@
+Trace file: /home/dby/inria/test-pallas/spinloop/test-run-20260616-115926/test_3/mpi_test_spinloop_trace/eztrace_log.pallas
+Archive: id=1 dir=/home/dby/inria/test-pallas/spinloop/test-run-20260616-115926/test_3/mpi_test_spinloop_trace
+Thread: id=1073741823
+
+Top 5 events by timestamp vector size
+
+[1] Event id=8 name=Enter 1073741825 (MPI_Test) record=Record.ENTER
+  timestamps: size=8521469 subarrays=353074 avg_subarray_size=24.14 preferred_policy=Lossy policies={Delta:1, Lossy:353073}
+
+[2] Event id=9 name=Leave 1073741825 (MPI_Test) record=Record.LEAVE
+  timestamps: size=8521469 subarrays=353107 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:353106}
+
+[3] Event id=1 name=Enter 1073741823 (MPI_Barrier) record=Record.ENTER
+  timestamps: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+
+[4] Event id=2 name=MPI_COLLECTIVE_BEGIN() record=Record.MPI_COLLECTIVE_BEGIN
+  timestamps: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+
+[5] Event id=3 name=MPI_COLLECTIVE_END(op=0, comm=0, root=4294967295, sent=0, recv=0) record=Record.MPI_COLLECTIVE_END
+  timestamps: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+
+Top 5 sequences by total LV size
+
+[1] Sequence id=3 name=MPI_Test total_size=25534407 n_iterations=8511469 tokens=2
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  combined: total_size=25534407 subarrays=355876 avg_subarray_size=71.75
+
+[2] Sequence id=1 name=MPI_Barrier total_size=30000 n_iterations=10000 tokens=4
+  timestamps: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+  durations: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+  exclusive_durations: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+  combined: total_size=30000 subarrays=12 avg_subarray_size=2500.00
+
+[3] Sequence id=2 name=MPI_Irecv total_size=30000 n_iterations=10000 tokens=3
+  timestamps: size=10000 subarrays=4 avg_subarray_size=2500.00 preferred_policy=Delta policies={Delta:4}
+  durations: size=10000 subarrays=3 avg_subarray_size=3333.33 preferred_policy=Delta policies={Delta:3}
+  exclusive_durations: size=10000 subarrays=3 avg_subarray_size=3333.33 preferred_policy=Delta policies={Delta:3}
+  combined: total_size=30000 subarrays=10 avg_subarray_size=3000.00
+
+[4] Sequence id=0 name=Sequence_0 total_size=3 n_iterations=1 tokens=1
+  timestamps: size=1 subarrays=1 avg_subarray_size=1.00 preferred_policy=Delta policies={Delta:1}
+  durations: size=1 subarrays=1 avg_subarray_size=1.00 preferred_policy=Delta policies={Delta:1}
+  exclusive_durations: size=1 subarrays=1 avg_subarray_size=1.00 preferred_policy=Delta policies={Delta:1}
+  combined: total_size=3 subarrays=3 avg_subarray_size=1.00
+
+[5] Sequence id=4 name=MPI_Test total_size=3 n_iterations=1 tokens=3
+  timestamps: size=1 subarrays=1 avg_subarray_size=1.00 preferred_policy=Delta policies={Delta:1}
+  durations: size=1 subarrays=1 avg_subarray_size=1.00 preferred_policy=Delta policies={Delta:1}
+  exclusive_durations: size=1 subarrays=1 avg_subarray_size=1.00 preferred_policy=Delta policies={Delta:1}
+  combined: total_size=3 subarrays=3 avg_subarray_size=1.00
+
+Top 5 loops by repeated-sequence LV size
+
+[1] Loop id=0 sequence_id=3 sequence_name=MPI_Test nb_iterations=13384 total_size=25534407
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  combined: total_size=25534407 subarrays=355876 avg_subarray_size=71.75
+
+[2] Loop id=1 sequence_id=3 sequence_name=MPI_Test nb_iterations=13313 total_size=25534407
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  combined: total_size=25534407 subarrays=355876 avg_subarray_size=71.75
+
+[3] Loop id=2 sequence_id=3 sequence_name=MPI_Test nb_iterations=12008 total_size=25534407
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  combined: total_size=25534407 subarrays=355876 avg_subarray_size=71.75
+
+[4] Loop id=3 sequence_id=3 sequence_name=MPI_Test nb_iterations=10572 total_size=25534407
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  combined: total_size=25534407 subarrays=355876 avg_subarray_size=71.75
+
+[5] Loop id=4 sequence_id=3 sequence_name=MPI_Test nb_iterations=9124 total_size=25534407
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  combined: total_size=25534407 subarrays=355876 avg_subarray_size=71.75
+
+Deep dive for sequence id=3 name=MPI_Test
+  timestamps: size=8511469 subarrays=352726 avg_subarray_size=24.13 preferred_policy=Lossy policies={Delta:1, Lossy:352725}
+  durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  exclusive_durations: size=8511469 subarrays=1575 avg_subarray_size=5404.11 preferred_policy=Delta policies={Delta:1575}
+  durations_preview_stats: min=216 max=7597 mean=367.656
+  hot_loop_window[0:63]_stats: min=216 max=7597
