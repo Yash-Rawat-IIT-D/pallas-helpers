@@ -413,9 +413,9 @@ class GammaBlockStats:
 
 class PostMortemGammaPLA(PLAAlgorithm):
     name = "postmortem-gamma"
-    K = 32
-    SEED_COUNT = 4
-    SEED_POOL_SIZE = 16
+    K = 64
+    SEED_COUNT = 16
+    SEED_POOL_SIZE = 64
     CANDIDATES_PER_SEGMENT = 4
     RIGHT_WINDOWS = (4, 16, 32, 64, 128, 256, 512)
     LEFT_WINDOWS = (4, 16, 32, 64)

@@ -1,25 +1,25 @@
 [
   { 
     "storagePolicy" : "None",
-    "timeLossyPolicy" : "Linear",
+    "timeLossyPolicy" : "PLA16",
     "durationLossyPolicy" : "NormalSample",
     "overrideLoopDetection" : "true"
   },
   { 
     "storagePolicy" : "Delta",
-    "timeLossyPolicy" : "Linear",
+    "timeLossyPolicy" : "PLA16",
     "durationLossyPolicy" : "NormalSample",
     "overrideLoopDetection" : "true"
   },
   { 
     "storagePolicy" : "None",
-    "timeLossyPolicy" : "Linear",
+    "timeLossyPolicy" : "PLA16",
     "durationLossyPolicy" : "NormalSample",
     "overrideLoopDetection" : "false"
   },
   { 
     "storagePolicy" : "Delta",
-    "timeLossyPolicy" : "Linear",
+    "timeLossyPolicy" : "PLA16",
     "durationLossyPolicy" : "NormalSample",
     "overrideLoopDetection" : "false"
   }

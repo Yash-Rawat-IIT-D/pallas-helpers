@@ -312,7 +312,7 @@ Python wrappers were already moved to the new LV path earlier.
 Useful scripts in `test-pallas`:
 
 - `analyse_spinloop_trace.py`
-- `view_spinloop_timestamp_blocks.py`
+- `view_spinloop_blocks.py`
 
 These were used to inspect the new online timestamp/duration behavior,
 especially for the `MPI_Test` spinloop traces.
@@ -368,7 +368,7 @@ If someone is resuming the work, the best starting order is:
 5. `pallas/libraries/pallas/src/pallas_storage.cpp`
 6. `pallas/libraries/pallas/src/pallas_write.cpp`
 7. `test-pallas/analyse_spinloop_trace.py`
-8. `test-pallas/view_spinloop_timestamp_blocks.py`
+8. `test-pallas/view_spinloop_blocks.py`
 
 ## Safe Next Steps
 

@@ -7,8 +7,11 @@ import os
 import sys
 from pathlib import Path
 
+from duration_pla import (
+    create_duration_algorithm,
+    compute_prediction_block_max_abs_error,
+)
 from pla import (
-    compute_block_max_abs_error,
     create_pla_algorithm,
     materialize_segment_predictions,
 )
@@ -70,7 +73,7 @@ def import_numpy():
         import numpy as np
     except ImportError as exc:
         raise RuntimeError(
-            "numpy is required for timestamp block viewing. Please install it in the active environment."
+            "numpy is required for block viewing. Please install it in the active environment."
         ) from exc
     return np
 
@@ -83,14 +86,14 @@ def import_bokeh():
         from bokeh.plotting import figure
     except ImportError as exc:
         raise RuntimeError(
-            "bokeh is required for timestamp block viewing. Please install it in the active environment."
+            "bokeh is required for block viewing. Please install it in the active environment."
         ) from exc
     return output_file, save, show, column, row, Button, ColumnDataSource, CustomJS, Div, HoverTool, Range1d, Slider, figure
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="View one timestamp block at a time for the spinloop trace sequence."
+        description="View one timestamp or duration block at a time for the spinloop trace sequence."
     )
     parser.add_argument(
         "trace_path",
@@ -103,9 +106,20 @@ def parse_args():
     parser.add_argument("--block-size", type=int, default=1000, help="Number of timestamps per viewed block. Defaults to 1000.")
     parser.add_argument("--block-index", type=int, default=0, help="Zero-based block index to view.")
     parser.add_argument(
+        "--mode",
+        choices=("timestamp", "duration"),
+        default="timestamp",
+        help="Which sequence vector to visualize. Defaults to timestamp.",
+    )
+    parser.add_argument(
         "--pla-algorithm",
         default="first-last",
-        help="PLA overlay to run per block. Defaults to first-last.",
+        help="PLA overlay to run per block in timestamp mode. Defaults to first-last.",
+    )
+    parser.add_argument(
+        "--duration-algorithm",
+        default="baseline-spikes",
+        help="Duration prediction overlay to run per block in duration mode. Defaults to baseline-spikes.",
     )
     parser.add_argument("--plot-dir", default=None, help="Directory where the HTML plot should be saved.")
     parser.add_argument("--show-bokeh", action="store_true", help="Open the generated Bokeh HTML in a browser.")
@@ -246,6 +260,24 @@ def build_block_payload(timestamps, start, end):
     }
 
 
+def build_duration_block_payload(durations, start, end):
+    np = import_numpy()
+    block_durations = durations[start:end]
+    block_indices = np.arange(start, end, dtype=np.int64)
+    return {
+        "indices": block_indices,
+        "durations": block_durations,
+    }
+
+
+def select_sequence_vector(sequence, mode):
+    if mode == "timestamp":
+        return vector_to_numpy(sequence.timestamps).astype(import_numpy().int64, copy=False)
+    if mode == "duration":
+        return vector_to_numpy(sequence.durations).astype(import_numpy().int64, copy=False)
+    raise ValueError(f"unknown mode: {mode}")
+
+
 def compute_block_pla_segments(timestamps, block_size, pla_algorithm):
     block_segment_xs = []
     block_segment_ys = []
@@ -271,18 +303,31 @@ def compute_block_pla_segments(timestamps, block_size, pla_algorithm):
     return block_segments, block_segment_xs, block_segment_ys, block_prediction_values, block_diagnostics
 
 
-def compute_top_block_errors(timestamps, block_size, block_segments, limit=10):
-    block_errors = []
-    for block_index, segments in enumerate(block_segments):
-        block_start = block_index * block_size
-        block_end = min(timestamps.size, block_start + block_size)
+def compute_duration_block_predictions(durations, block_size, duration_algorithm):
+    block_prediction_values = []
+    block_diagnostics = []
+    for block_start in range(0, durations.size, block_size):
+        block_end = min(durations.size, block_start + block_size)
         block_indices = list(range(block_start, block_end))
-        block_values = timestamps[block_start:block_end].tolist()
-        error_summary = compute_block_max_abs_error(
+        block_values = durations[block_start:block_end].tolist()
+        predictions = duration_algorithm.predict_block(block_indices, block_values)
+        block_prediction_values.append(predictions)
+        block_diagnostics.append(duration_algorithm.get_last_fit_diagnostics())
+    return block_prediction_values, block_diagnostics
+
+
+def compute_top_prediction_errors(values, block_size, block_predictions, limit=10):
+    block_errors = []
+    for block_index, predictions in enumerate(block_predictions):
+        block_start = block_index * block_size
+        block_end = min(values.size, block_start + block_size)
+        block_indices = list(range(block_start, block_end))
+        block_values = values[block_start:block_end].tolist()
+        error_summary = compute_prediction_block_max_abs_error(
             block_index=block_index,
             indices=block_indices,
             values=block_values,
-            segments=segments,
+            predictions=predictions,
         )
         if error_summary is not None:
             block_errors.append(error_summary)
@@ -293,7 +338,7 @@ def compute_top_block_errors(timestamps, block_size, block_segments, limit=10):
     )[:limit]
 
 
-def build_info_html(trace_file, archive_id, thread_id, sequence_id, block_size, block_index, block_count, block_payload, pla_name, pla_segment_count):
+def build_timestamp_info_html(trace_file, archive_id, thread_id, sequence_id, block_size, block_index, block_count, block_payload, pla_name, pla_segment_count):
     block_timestamps = block_payload["timestamps"]
     return (
         f"<h2>Spinloop timestamp block viewer</h2>"
@@ -304,6 +349,20 @@ def build_info_html(trace_file, archive_id, thread_id, sequence_id, block_size, 
         f"<p><b>PLA algorithm:</b> {pla_name} | <b>PLA segments in block:</b> {pla_segment_count}</p>"
         f"<p><b>Window:</b> [{int(block_payload['indices'][0])}, {int(block_payload['indices'][-1]) + 1}) | "
         f"<b>Timestamp range:</b> [{int(block_timestamps.min())}, {int(block_timestamps.max())}]</p>"
+    )
+
+
+def build_duration_info_html(trace_file, archive_id, thread_id, sequence_id, block_size, block_index, block_count, block_payload, algorithm_name):
+    block_durations = block_payload["durations"]
+    return (
+        f"<h2>Spinloop duration block viewer</h2>"
+        f"<p><b>Trace:</b> {trace_file}</p>"
+        f"<p><b>Archive:</b> {archive_id} | <b>Thread:</b> {thread_id} | "
+        f"<b>Sequence:</b> {sequence_id} | <b>Block size:</b> {block_size} | "
+        f"<b>Block index:</b> {block_index} / {block_count - 1}</p>"
+        f"<p><b>Duration algorithm:</b> {algorithm_name}</p>"
+        f"<p><b>Window:</b> [{int(block_payload['indices'][0])}, {int(block_payload['indices'][-1]) + 1}) | "
+        f"<b>Duration range:</b> [{int(block_durations.min())}, {int(block_durations.max())}]</p>"
     )
 
 
@@ -357,47 +416,68 @@ def print_pla_diagnostics(block_index, diagnostics):
             )
 
 
-def main():
-    args = parse_args()
+def print_duration_diagnostics(block_index, diagnostics):
+    if not diagnostics:
+        return
+
+    print(f"Diagnostics for duration block {block_index}:")
+    print(f"  baseline={diagnostics.get('baseline')}")
+    print(f"  spike_threshold={diagnostics.get('spike_threshold')}")
+    print(f"  candidate_count={diagnostics.get('candidate_count')}")
+
+    exact_positions = diagnostics.get("exact_positions", [])
+    if exact_positions:
+        print(f"  exact_positions={exact_positions}")
+
+    groups = diagnostics.get("groups", [])
+    if groups:
+        print("  groups:")
+        for group in groups:
+            print(
+                "    "
+                f"seed={group['seed_position']} "
+                f"value={group['representative_value']} "
+                f"residual={group['representative_residual']} "
+                f"count={group['count']} "
+                f"indices={group['positions']}"
+            )
+
+
+def print_top_prediction_errors(label, block_errors):
+    if not block_errors:
+        print(f"No {label} block errors were computed.")
+        return
+
+    print(f"Top {len(block_errors)} {label} block max absolute errors:")
+    for error in block_errors:
+        print(
+            "  "
+            f"block={error.block_index} "
+            f"logical_index={error.logical_index} "
+            f"max_abs_error={error.max_abs_error:.3f}"
+        )
+
+
+def build_timestamp_layout(args, trace_file, archive, thread, sequence, plot_dir):
     np = import_numpy()
     output_file, save, show, column, row, Button, ColumnDataSource, CustomJS, Div, HoverTool, Range1d, Slider, figure = import_bokeh()
     pla_algorithm = create_pla_algorithm(args.pla_algorithm)
-
-    pallas_trace = load_pallas_trace_module()
-    trace_file = resolve_trace_file(resolve_input_trace_path(args.trace_path))
-    trace = pallas_trace.open_trace(str(trace_file))
-    archive = select_archive(trace, args.archive)
-    thread = select_thread(archive, args.thread)
-    sequence = find_sequence(thread, args.sequence_id)
-
-    timestamps = vector_to_numpy(sequence.timestamps).astype(np.int64, copy=False)
+    timestamps = select_sequence_vector(sequence, "timestamp")
     start, end, block_count = block_bounds(timestamps.size, args.block_size, args.block_index)
     initial_block = build_block_payload(timestamps, start, end)
     block_segments, block_segment_xs, block_segment_ys, block_prediction_values, block_diagnostics = compute_block_pla_segments(
         timestamps, args.block_size, pla_algorithm
     )
-    top_block_errors = compute_top_block_errors(
-        timestamps,
-        args.block_size,
-        block_segments,
-    )
 
-    plot_dir = Path(args.plot_dir) if args.plot_dir else trace_file.resolve().parent / "analysis_plots"
-    plot_dir.mkdir(parents=True, exist_ok=True)
     output_path = plot_dir / f"sequence_{args.sequence_id}_timestamps_blocks_viewer.html"
-
     timestamp_source = ColumnDataSource({
         "index": initial_block["indices"].tolist(),
         "timestamp": initial_block["timestamps"].tolist(),
     })
-
     all_data_source = ColumnDataSource({
         "timestamps": timestamps.tolist(),
-        "pla_xs": block_segment_xs,
-        "pla_ys": block_segment_ys,
         "pla_predictions": block_prediction_values,
     })
-
     pla_source = ColumnDataSource({
         "index": initial_block["indices"].tolist(),
         "prediction": block_prediction_values[args.block_index],
@@ -436,7 +516,7 @@ def main():
     ))
     timestamp_plot.add_tools(HoverTool(
         renderers=[pla_renderer],
-        tooltips=[("segment start", "$x{0,0}"), ("segment value", "$y{0,0}")]
+        tooltips=[("logical index", "@index{0,0}"), ("prediction", "@prediction{0,0}")]
     ))
 
     delta_source = ColumnDataSource({
@@ -447,6 +527,7 @@ def main():
         "index": initial_block["delta_of_delta_indices"].tolist(),
         "delta_of_delta": initial_block["delta_of_deltas"].tolist(),
     })
+
     delta_plot = figure(
         title="Sequence timestamp deltas",
         width=1400,
@@ -510,7 +591,7 @@ def main():
         tooltips=[("logical index", "@index{0,0}"), ("|delta-of-delta|", "@delta_of_delta{0,0}")]
     ))
 
-    info = Div(text=build_info_html(
+    info = Div(text=build_timestamp_info_html(
         trace_file=trace_file,
         archive_id=archive.id,
         thread_id=thread.id,
@@ -523,14 +604,7 @@ def main():
         pla_segment_count=len(block_segment_xs[args.block_index]),
     ))
 
-    slider = Slider(
-        start=0,
-        end=max(0, block_count - 1),
-        value=args.block_index,
-        step=1,
-        title="Block index",
-        width=1100,
-    )
+    slider = Slider(start=0, end=max(0, block_count - 1), value=args.block_index, step=1, title="Block index", width=1100)
     prev_button = Button(label="Previous block", width=140)
     next_button = Button(label="Next block", width=140)
 
@@ -556,8 +630,6 @@ def main():
         ),
         code="""
 const timestamps = all_data.data.timestamps;
-const allPlaXs = all_data.data.pla_xs;
-const allPlaYs = all_data.data.pla_ys;
 const allPlaPredictions = all_data.data.pla_predictions;
 const blockIndex = slider.value;
 const start = blockIndex * block_size;
@@ -569,16 +641,9 @@ for (let i = start; i < end; ++i) {
     blockIndices.push(i);
     blockTimestamps.push(timestamps[i]);
 }
-ts_source.data = {
-    index: blockIndices,
-    timestamp: blockTimestamps,
-};
+ts_source.data = { index: blockIndices, timestamp: blockTimestamps };
 ts_source.change.emit();
-
-pla_source.data = {
-    index: blockIndices,
-    prediction: allPlaPredictions[blockIndex],
-};
+pla_source.data = { index: blockIndices, prediction: allPlaPredictions[blockIndex] };
 pla_source.change.emit();
 
 const deltaIndices = [];
@@ -587,10 +652,7 @@ for (let i = 1; i < blockTimestamps.length; ++i) {
     deltaIndices.push(start + i);
     deltaValues.push(blockTimestamps[i] - blockTimestamps[i - 1]);
 }
-delta_source.data = {
-    index: deltaIndices,
-    delta: deltaValues,
-};
+delta_source.data = { index: deltaIndices, delta: deltaValues };
 delta_source.change.emit();
 
 const deltaOfDeltaIndices = [];
@@ -599,10 +661,7 @@ for (let i = 1; i < deltaValues.length; ++i) {
     deltaOfDeltaIndices.push(start + i + 1);
     deltaOfDeltaValues.push(Math.abs(deltaValues[i] - deltaValues[i - 1]));
 }
-delta_of_delta_source.data = {
-    index: deltaOfDeltaIndices,
-    delta_of_delta: deltaOfDeltaValues,
-};
+delta_of_delta_source.data = { index: deltaOfDeltaIndices, delta_of_delta: deltaOfDeltaValues };
 delta_of_delta_source.change.emit();
 
 if (blockIndices.length > 0) {
@@ -622,7 +681,7 @@ if (blockIndices.length > 0) {
     let infoText = `<h2>Spinloop timestamp block viewer</h2>`;
     infoText += `<p><b>Trace:</b> ${trace_path}</p>`;
     infoText += `<p><b>Archive:</b> ${archive_id} | <b>Thread:</b> ${thread_id} | <b>Sequence:</b> ${sequence_id} | <b>Block size:</b> ${block_size} | <b>Block index:</b> ${blockIndex} / ${block_count - 1}</p>`;
-    infoText += `<p><b>PLA algorithm:</b> ${pla_algorithm} | <b>PLA segments in block:</b> ${allPlaXs[blockIndex].length}</p>`;
+    infoText += `<p><b>PLA algorithm:</b> ${pla_algorithm}</p>`;
     infoText += `<p><b>Window:</b> [${start}, ${end}) | <b>Timestamp range:</b> [${tsMin}, ${tsMax}]</p>`;
 
     if (deltaValues.length > 0) {
@@ -635,7 +694,6 @@ if (blockIndices.length > 0) {
         let deltaPad = deltaMin === deltaMax ? (deltaMin === 0 ? 1.0 : Math.abs(deltaMin) * 0.01) : (deltaMax - deltaMin) * 0.05;
         delta_plot.y_range.start = deltaMin - deltaPad;
         delta_plot.y_range.end = deltaMax + deltaPad;
-        infoText += `<p><b>Delta range:</b> [${deltaMin}, ${deltaMax}]</p>`;
     } else {
         delta_plot.y_range.start = -1.0;
         delta_plot.y_range.end = 1.0;
@@ -651,48 +709,200 @@ if (blockIndices.length > 0) {
         let dodPad = dodMin === dodMax ? (dodMin === 0 ? 1.0 : Math.abs(dodMin) * 0.01) : (dodMax - dodMin) * 0.05;
         delta_of_delta_plot.y_range.start = dodMin - dodPad;
         delta_of_delta_plot.y_range.end = dodMax + dodPad;
-        infoText += `<p><b>|Delta-of-delta| range:</b> [${dodMin}, ${dodMax}]</p>`;
     } else {
         delta_of_delta_plot.y_range.start = -1.0;
         delta_of_delta_plot.y_range.end = 1.0;
     }
     info.text = infoText;
 }
-"""
+""",
     )
     slider.js_on_change("value", callback)
-    prev_button.js_on_click(CustomJS(args=dict(slider=slider), code="""
-if (slider.value > slider.start) {
-    slider.value = slider.value - 1;
-}
-"""))
-    next_button.js_on_click(CustomJS(args=dict(slider=slider), code="""
-if (slider.value < slider.end) {
-    slider.value = slider.value + 1;
-}
-"""))
+    prev_button.js_on_click(CustomJS(args=dict(slider=slider), code="if (slider.value > slider.start) { slider.value = slider.value - 1; }"))
+    next_button.js_on_click(CustomJS(args=dict(slider=slider), code="if (slider.value < slider.end) { slider.value = slider.value + 1; }"))
 
     controls = row(prev_button, next_button, slider)
-    layout_children = [info, controls, timestamp_plot, delta_plot, delta_of_delta_plot]
-    layout = column(*layout_children)
-
-    output_file(output_path, title=f"Sequence {args.sequence_id} block {args.block_index}")
+    layout = column(info, controls, timestamp_plot, delta_plot, delta_of_delta_plot)
+    output_file(output_path, title=f"Sequence {args.sequence_id} timestamp block {args.block_index}")
     save(layout)
-
     print(f"Saved interactive timestamp block view to: {output_path}")
-    print(f"Top {len(top_block_errors)} max absolute block errors for PLA '{pla_algorithm.name}':")
-    for error_summary in top_block_errors:
-        print(
-            f"  block={error_summary.block_index} "
-            f"max_abs_error={error_summary.max_abs_error:.3f} "
-            f"logical_index={error_summary.logical_index}"
-        )
     print_pla_diagnostics(args.block_index, block_diagnostics[args.block_index])
-
     if args.show_bokeh:
         show(layout)
-
     return 0
+
+
+def build_duration_layout(args, trace_file, archive, thread, sequence, plot_dir):
+    output_file, save, show, column, row, Button, ColumnDataSource, CustomJS, Div, HoverTool, Range1d, Slider, figure = import_bokeh()
+    duration_algorithm = create_duration_algorithm(args.duration_algorithm)
+    durations = select_sequence_vector(sequence, "duration")
+    start, end, block_count = block_bounds(durations.size, args.block_size, args.block_index)
+    initial_block = build_duration_block_payload(durations, start, end)
+    block_prediction_values, block_diagnostics = compute_duration_block_predictions(
+        durations,
+        args.block_size,
+        duration_algorithm,
+    )
+    top_block_errors = compute_top_prediction_errors(
+        durations,
+        args.block_size,
+        block_prediction_values,
+    )
+    output_path = plot_dir / f"sequence_{args.sequence_id}_durations_blocks_viewer.html"
+
+    duration_source = ColumnDataSource({
+        "index": initial_block["indices"].tolist(),
+        "duration": initial_block["durations"].tolist(),
+    })
+    prediction_source = ColumnDataSource({
+        "index": initial_block["indices"].tolist(),
+        "prediction": block_prediction_values[args.block_index],
+    })
+    all_data_source = ColumnDataSource({
+        "durations": durations.tolist(),
+        "predictions": block_prediction_values,
+    })
+
+    duration_plot = figure(
+        title=f"Sequence {args.sequence_id} durations block viewer with prediction overlay",
+        width=1400,
+        height=520,
+        tools="pan,wheel_zoom,box_zoom,reset,save",
+        active_scroll="wheel_zoom",
+    )
+    duration_renderer = duration_plot.line("index", "duration", source=duration_source, line_width=2, color="navy")
+    prediction_renderer = duration_plot.line(
+        "index",
+        "prediction",
+        source=prediction_source,
+        line_width=3,
+        color="darkorange",
+        alpha=0.9,
+        legend_label=f"Duration ({duration_algorithm.name})",
+    )
+    duration_plot.circle("index", "duration", source=duration_source, size=3, alpha=0.5, color="navy")
+    duration_plot.xaxis.axis_label = "logical index"
+    duration_plot.yaxis.axis_label = "duration"
+    duration_plot.legend.location = "top_left"
+    duration_plot.legend.click_policy = "hide"
+    dur_ymin, dur_ymax = padded_range(
+        float(initial_block["durations"].min()),
+        float(initial_block["durations"].max()),
+    )
+    duration_plot.y_range = Range1d(dur_ymin, dur_ymax)
+    duration_plot.add_tools(HoverTool(
+        renderers=[duration_renderer],
+        tooltips=[("logical index", "@index{0,0}"), ("duration", "@duration{0,0}")]
+    ))
+    duration_plot.add_tools(HoverTool(
+        renderers=[prediction_renderer],
+        tooltips=[("logical index", "@index{0,0}"), ("prediction", "@prediction{0,0}")]
+    ))
+
+    info = Div(text=build_duration_info_html(
+        trace_file=trace_file,
+        archive_id=archive.id,
+        thread_id=thread.id,
+        sequence_id=args.sequence_id,
+        block_size=args.block_size,
+        block_index=args.block_index,
+        block_count=block_count,
+        block_payload=initial_block,
+        algorithm_name=duration_algorithm.name,
+    ))
+
+    slider = Slider(start=0, end=max(0, block_count - 1), value=args.block_index, step=1, title="Block index", width=1100)
+    prev_button = Button(label="Previous block", width=140)
+    next_button = Button(label="Next block", width=140)
+
+    callback = CustomJS(
+        args=dict(
+            all_data=all_data_source,
+            duration_source=duration_source,
+            prediction_source=prediction_source,
+            duration_plot=duration_plot,
+            slider=slider,
+            info=info,
+            block_size=args.block_size,
+            block_count=block_count,
+            sequence_id=args.sequence_id,
+            archive_id=archive.id,
+            thread_id=thread.id,
+            trace_path=str(trace_file),
+            duration_algorithm=duration_algorithm.name,
+        ),
+        code="""
+const durations = all_data.data.durations;
+const allPredictions = all_data.data.predictions;
+const blockIndex = slider.value;
+const start = blockIndex * block_size;
+const end = Math.min(durations.length, start + block_size);
+
+const blockIndices = [];
+const blockDurations = [];
+for (let i = start; i < end; ++i) {
+    blockIndices.push(i);
+    blockDurations.push(durations[i]);
+}
+duration_source.data = { index: blockIndices, duration: blockDurations };
+duration_source.change.emit();
+prediction_source.data = { index: blockIndices, prediction: allPredictions[blockIndex] };
+prediction_source.change.emit();
+
+if (blockIndices.length > 0) {
+    duration_plot.x_range.start = start;
+    duration_plot.x_range.end = Math.max(start + 1, end - 1);
+
+    let durMin = blockDurations[0];
+    let durMax = blockDurations[0];
+    for (const value of blockDurations) {
+        if (value < durMin) durMin = value;
+        if (value > durMax) durMax = value;
+    }
+    let durPad = durMin === durMax ? (durMin === 0 ? 1.0 : Math.abs(durMin) * 0.01) : (durMax - durMin) * 0.05;
+    duration_plot.y_range.start = durMin - durPad;
+    duration_plot.y_range.end = durMax + durPad;
+
+    let infoText = `<h2>Spinloop duration block viewer</h2>`;
+    infoText += `<p><b>Trace:</b> ${trace_path}</p>`;
+    infoText += `<p><b>Archive:</b> ${archive_id} | <b>Thread:</b> ${thread_id} | <b>Sequence:</b> ${sequence_id} | <b>Block size:</b> ${block_size} | <b>Block index:</b> ${blockIndex} / ${block_count - 1}</p>`;
+    infoText += `<p><b>Duration algorithm:</b> ${duration_algorithm}</p>`;
+    infoText += `<p><b>Window:</b> [${start}, ${end}) | <b>Duration range:</b> [${durMin}, ${durMax}]</p>`;
+    info.text = infoText;
+}
+""",
+    )
+    slider.js_on_change("value", callback)
+    prev_button.js_on_click(CustomJS(args=dict(slider=slider), code="if (slider.value > slider.start) { slider.value = slider.value - 1; }"))
+    next_button.js_on_click(CustomJS(args=dict(slider=slider), code="if (slider.value < slider.end) { slider.value = slider.value + 1; }"))
+
+    controls = row(prev_button, next_button, slider)
+    layout = column(info, controls, duration_plot)
+    output_file(output_path, title=f"Sequence {args.sequence_id} duration block {args.block_index}")
+    save(layout)
+    print(f"Saved interactive duration block view to: {output_path}")
+    print_duration_diagnostics(args.block_index, block_diagnostics[args.block_index])
+    print_top_prediction_errors("duration", top_block_errors)
+    if args.show_bokeh:
+        show(layout)
+    return 0
+
+
+def main():
+    args = parse_args()
+    trace_file = resolve_trace_file(resolve_input_trace_path(args.trace_path))
+    pallas_trace = load_pallas_trace_module()
+    trace = pallas_trace.open_trace(str(trace_file))
+    archive = select_archive(trace, args.archive)
+    thread = select_thread(archive, args.thread)
+    sequence = find_sequence(thread, args.sequence_id)
+
+    plot_dir = Path(args.plot_dir) if args.plot_dir else trace_file.resolve().parent / "analysis_plots"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.mode == "duration":
+        return build_duration_layout(args, trace_file, archive, thread, sequence, plot_dir)
+    return build_timestamp_layout(args, trace_file, archive, thread, sequence, plot_dir)
 
 
 if __name__ == "__main__":
