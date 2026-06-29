@@ -1,26 +1,38 @@
 [
-  { 
+  {
     "storagePolicy" : "None",
     "timeLossyPolicy" : "PLA16",
-    "durationLossyPolicy" : "NormalSample",
+    "durationLossyPolicy" : "Spike16",
     "overrideLoopDetection" : "true"
   },
-  { 
+  {
     "storagePolicy" : "Delta",
     "timeLossyPolicy" : "PLA16",
-    "durationLossyPolicy" : "NormalSample",
+    "durationLossyPolicy" : "Spike16",
     "overrideLoopDetection" : "true"
   },
-  { 
+  {
     "storagePolicy" : "None",
-    "timeLossyPolicy" : "PLA16",
-    "durationLossyPolicy" : "NormalSample",
+    "timeLossyPolicy" : "PLA4",
+    "durationLossyPolicy" : "Spike4",
     "overrideLoopDetection" : "false"
   },
-  { 
-    "storagePolicy" : "Delta",
+  {
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA8",
+    "durationLossyPolicy" : "Spike8",
+    "overrideLoopDetection" : "false"
+  },
+  {
+    "storagePolicy" : "None",
     "timeLossyPolicy" : "PLA16",
-    "durationLossyPolicy" : "NormalSample",
+    "durationLossyPolicy" : "Spike16",
+    "overrideLoopDetection" : "false"
+  },
+  {
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA32",
+    "durationLossyPolicy" : "Spike32",
     "overrideLoopDetection" : "false"
   }
 ]

@@ -385,3 +385,187 @@ The safest next steps are:
 If new lossy work starts, it should be built on the current standalone
 `TimeLV` / `DurationLV` + `SubArrayBase` + `Manager` stack, not on the old
 legacy linked-vector code.
+
+## Update Addendum
+
+This section supersedes the older notes above where they still refer to
+`Linear` timestamps or `NormalSample` durations.
+
+### Timestamp Loses / PLA Status
+
+Timestamp lossy work no longer uses the old linear scheme.
+
+Current timestamp lossy variants are:
+
+- `PLA4`
+- `PLA8`
+- `PLA16`
+- `PLA32`
+
+Python work in `test-pallas/pla.py` produced and visualized:
+
+- `FirstLastPLA`
+- `PostMortemAlphaPLA`
+- `PostMortemBetaPLA`
+- `PostMortemGammaPLA`
+
+The C++ timestamp path now uses:
+
+- `PLAManager` in `pallas_subarray.h/.cpp`
+- PLA helpers in `pallas_pla.h/.cpp`
+
+Current behavior:
+
+- `PLA4` uses the simple alpha-style block builder
+- `PLA8/16/32` use the Gamma-style anchor-selection path
+- first/last timestamp values stay implicit segment endpoints
+- anchors are packed compactly on disk
+- after file read, PLA stays compact in memory and reconstructs through
+  `at()` / `[]` on demand
+
+### Duration Spike Path
+
+Duration lossy is now implemented as a compact post-processing path.
+
+Current duration lossy variants are:
+
+- `Spike4`
+- `Spike8`
+- `Spike16`
+- `Spike32`
+
+The C++ runtime uses `DurationSpikeManager` in `pallas_subarray.h/.cpp`.
+
+The current block pipeline is:
+
+1. Build a robust initial duration baseline from the raw block.
+2. Detect strong positive spike candidates.
+3. Preserve the top spike candidates exactly.
+4. Group similar remaining spike amplitudes.
+5. Fit a clipped baseline mean/stddev model on the remaining values.
+6. Pack the compact payload and discard the raw 1000-value footprint.
+
+Current payload layout is:
+
+- `baseline_mean`
+- `baseline_stddev`
+- `exact_count`
+- `group_count`
+- exact spike entries
+- grouped spike entries
+
+Exact spike entry:
+
+- `uint16_t idx`
+- `uint64_t value`
+
+Grouped spike entry:
+
+- `uint64_t value`
+- `uint8_t index_count`
+- sorted delta-varint encoded indices
+
+Current runtime/load behavior:
+
+- duration spike blocks compact eagerly after block completion
+- after file read, they remain compact in memory
+- `at()` / `[]` reconstruct on demand from the compact decoded metadata
+- we do not eagerly decode the full logical block on load
+
+### Policy / Config State
+
+Current policy naming now revolves around:
+
+- `storagePolicy`
+- `timeLossyPolicy`
+- `durationLossyPolicy`
+- `overrideLoopDetection`
+
+Current default-like direction:
+
+- `timeLossyPolicy=PLA8`
+- `durationLossyPolicy=Spike8`
+
+`NormalSample` is retired.
+
+`Linear` is retired.
+
+### Python / Viewer Tooling
+
+The Bokeh block viewer is now:
+
+- `test-pallas/view_spinloop_blocks.py`
+
+It supports:
+
+- `--mode timestamp`
+- `--mode duration`
+
+Timestamp mode currently provides:
+
+- raw timestamp overlay
+- PLA prediction overlay
+- delta plot
+- absolute delta-of-delta plot
+- PLA diagnostics
+
+Duration mode currently provides:
+
+- raw duration plot
+- duration prediction overlay
+- per-block diagnostics
+- top max-absolute-error reporting across blocks
+
+The current duration prototype logic lives in:
+
+- `test-pallas/duration_pla.py`
+
+That Python prototype currently uses:
+
+- robust initial baseline
+- exact top spikes
+- grouped similar spikes
+- clipped mean / clipped stddev baseline fitting
+- deterministic Gaussian-like reconstruction for the remainder
+
+### Testing Matrix / Spinloop Tooling
+
+The spinloop matrix was updated to reflect the new policy families.
+
+Current useful synthetic comparison set in
+`test-pallas/spinloop/spinloop_matrix.json` includes:
+
+- `None` baseline with `overrideLoopDetection=false`
+- `Delta` baseline with `overrideLoopDetection=false`
+- lossy `PLA4 + Spike4`
+- lossy `PLA8 + Spike8`
+- lossy `PLA16 + Spike16`
+- lossy `PLA32 + Spike32`
+- a couple of `overrideLoopDetection=true` lossy runs for promotion-sensitivity
+  checks
+
+### Byte / Memory Accounting
+
+For the newer compact schemes (`PLAManager` and `DurationSpikeManager`):
+
+- `size()` still means logical value count
+- `mem_size()` / `physical_size` mean compact payload size in `uint64_t` words
+- subarray headers are written after compaction, so on-file metadata records the
+  compact payload size rather than the original raw block size
+- `numberPreRawBytes` tracks the logical raw footprint
+- `numberRawBytes` tracks the compact pre-compression payload footprint
+
+One subtlety:
+
+- compact payload size is rounded to `uint64_t` words, so byte accounting is
+  slightly rounded up versus the exact byte count of the payload
+
+### Current Practical State
+
+As of this update:
+
+- timestamp PLA path is implemented and wired
+- duration spike path is implemented and wired
+- both newer lossy paths stay compact after load
+- policy/config parsing has been updated to the new names
+- viewer and spinloop tooling have been updated to inspect both paths
