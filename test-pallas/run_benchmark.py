@@ -19,7 +19,7 @@ DEFAULT_KILL_SCRIPT = ROOT / "scripts" / "kill-trace-procs.sh"
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
-DO_READ_BENCHMARK = False
+DO_READ_BENCHMARK = True
 
 class RunStatus(IntEnum):
     OK = 0
@@ -344,13 +344,15 @@ class Runner:
                     check=False,
                 )
 
-            benchmark_report_path = trace_file.with_suffix(".read_benchmark.txt")
+            benchmark_bulk_report_path = trace_file.parent / "read_bulk_benchmark.csv"
+            benchmark_replay_report_path = trace_file.parent / "read_replay_benchmark.csv"
             append_log(run_log,"\n".join(
                     [
                         "read_benchmark_status=completed",
                         f"read_benchmark_returncode={benchmark_result.returncode}",
                         f"read_benchmark_trace_file={trace_file}",
-                        f"read_benchmark_report={benchmark_report_path}",
+                        f"read_benchmark_bulk_report={benchmark_bulk_report_path}",
+                        f"read_benchmark_replay_report={benchmark_replay_report_path}",
                         "",
                     ]
                 ),

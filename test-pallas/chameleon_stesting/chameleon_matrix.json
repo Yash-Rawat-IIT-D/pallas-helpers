@@ -1,22 +1,38 @@
 [
-  { 
-    "tsSubArrayEncoding": "None",     
-    "durationSubArrayEncoding": "None",
-    "overrideLoopPolicy": "false"
+  {
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA16",
+    "durationLossyPolicy" : "Spike16",
+    "overrideLoopDetection" : "true"
   },
   {
-    "tsSubArrayEncoding": "None",
-    "durationSubArrayEncoding": "None",
-    "overrideLoopPolicy": "true"
+    "storagePolicy" : "Delta",
+    "timeLossyPolicy" : "PLA16",
+    "durationLossyPolicy" : "Spike16",
+    "overrideLoopDetection" : "true"
   },
   {
-    "tsSubArrayEncoding": "Delta2VintTimestamp",     
-    "durationSubArrayEncoding": "Delta2VintDuration",
-    "overrideLoopPolicy": "false"
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA4",
+    "durationLossyPolicy" : "Spike4",
+    "overrideLoopDetection" : "false"
   },
   {
-    "tsSubArrayEncoding": "Delta2VintTimestamp",     
-    "durationSubArrayEncoding": "Delta2VintDuration",
-    "overrideLoopPolicy": "true"
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA8",
+    "durationLossyPolicy" : "Spike8",
+    "overrideLoopDetection" : "false"
+  },
+  {
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA16",
+    "durationLossyPolicy" : "Spike16",
+    "overrideLoopDetection" : "false"
+  },
+  {
+    "storagePolicy" : "None",
+    "timeLossyPolicy" : "PLA32",
+    "durationLossyPolicy" : "Spike32",
+    "overrideLoopDetection" : "false"
   }
 ]
