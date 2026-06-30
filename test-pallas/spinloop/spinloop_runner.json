@@ -5,7 +5,7 @@
   "executable_path": "mpi_test_spinloop",
   "other_env_scripts": [],
   "mpi_flags": "",
-  "executable_flags": "1000 1000",
+  "executable_flags": "2000 10000",
   "executable_command": "eztrace -m -t mpi {executable} {executable_flags}",
   "jobs": 2,
   "timeout_seconds": 3600

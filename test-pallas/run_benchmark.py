@@ -241,7 +241,7 @@ class Runner:
     def build_read_benchmark_command(self, trace_file: Path) -> str:
         return (
             f"{self.build_source_command_prefix()} && "
-            f"pallas_read_benchmark --both {shlex.quote(str(trace_file))}"
+            f"pallas_read_benchmark --bulk {shlex.quote(str(trace_file))}"
         )
 
     def write_run_metadata(self, output_dir: Path) -> None:
