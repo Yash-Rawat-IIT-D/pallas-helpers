@@ -1,0 +1,12 @@
+{
+  "default_config": "./../../../pallas/install-pallas/etc/pallas.config",
+  "default_matrix": "./matrix.json",
+  "default_output": "./runs_F",
+  "executable_path": "./../../../NPB/NPB3.4/NPB3.4-MPI/bin/ft.F.x",
+  "other_env_scripts": [],
+  "mpi_flags": "",
+  "executable_flags": "",
+  "executable_command": "eztrace -m -t mpi {executable}{executable_flags}",
+  "jobs": 4,
+  "timeout_seconds": 3600
+}
