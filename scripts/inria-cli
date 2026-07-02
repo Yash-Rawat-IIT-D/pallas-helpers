@@ -59,6 +59,7 @@ resolve_rebuild_script() {
 resolve_run_script() {
     case "${1:-}" in
         kill-trace-procs) printf '%s\n' "${INRIA_SCRIPTS_DIR}/kill-trace-procs.sh" ;;
+        build-npb-all) printf '%s\n' "${INRIA_SCRIPTS_DIR}/build-npb-all.sh" ;;
         *) return 1 ;;
     esac
 }
@@ -173,7 +174,8 @@ choose_run() {
     choice="$(whiptail \
         --backtitle "${BACKTITLE}" \
         --title "${TITLE}" \
-        --menu "Choose a utility script:" 15 72 6 \
+        --menu "Choose a utility script:" 16 76 7 \
+        "build-npb-all" "Build all NPB MPI benchmarks" \
         "kill-trace-procs" "Stop trace-related processes" \
         3>&1 1>&2 2>&3)" || return 1
 
@@ -209,6 +211,10 @@ Rebuilds:
   starpu
   chameleon
   blup
+
+Utilities:
+  build-npb-all
+  kill-trace-procs
 
 Notes:
   - Environment selection applies changes to the current shell.
@@ -267,6 +273,7 @@ Usage:
 Notes:
   - Running without arguments launches the arrow-key terminal UI.
   - env <name> applies the environment to your current shell.
+  - run build-npb-all launches the NPB MPI build helper.
 EOF
 }
 
